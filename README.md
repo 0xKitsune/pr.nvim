@@ -26,8 +26,6 @@ Review GitHub pull requests directly in Neovim.
 ```lua
 {
   dir = "~/path/to/pr.nvim",  -- local path
-  -- or use your repo:
-  -- "your-username/pr.nvim",
   dependencies = {
     "nvim-telescope/telescope.nvim", -- optional
   },
@@ -135,12 +133,13 @@ require("pr").setup()
 ## Comment indicators
 
 - 💬 (blue) - Existing comment from GitHub
-- 💬 (yellow) - Pending comment (not yet submitted)
+- 💬 (yellow) - Pending comments
 
 ## Persistence
 
 Your review progress is automatically saved when you close:
-- Which files you've marked as reviewed
+
+- Which files you have marked as reviewed
 - Pending comments not yet submitted
 - Current file position
 
@@ -150,7 +149,7 @@ Resume anytime by opening the same PR again.
 
 ```lua
 require("pr").setup({
-  provider = "github",  -- only github supported currently
+  provider = "github",
   keymaps = {
     comment = "c",
     suggest = "s",
@@ -162,7 +161,3 @@ require("pr").setup({
   },
 })
 ```
-
-## License
-
-MIT
