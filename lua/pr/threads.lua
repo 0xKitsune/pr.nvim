@@ -192,23 +192,8 @@ end
 
 function M.show_thread_popup(thread)
   local status = thread.pending and " (pending)" or ""
-  local timestamp = ""
-  if thread.created_at then
-    timestamp = " • " .. thread.created_at:sub(1, 10)
-  end
   
-  local lines = {
-    "── Comment ──────────────────────────────",
-    string.format("Author: @%s%s%s", thread.author, status, timestamp),
-    string.format("File: %s", thread.path or "?"),
-    string.format("Line: %d", thread.line or 0),
-    "─────────────────────────────────────────",
-    "",
-  }
-
-  for _, line in ipairs(vim.split(thread.body or "", "\n")) do
-    table.insert(lines, line)
-  end
+  local lines = vim.split(thread.body or "", "\n")
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -216,7 +201,9 @@ function M.show_thread_popup(thread)
   vim.bo[buf].filetype = "markdown"
 
   local width = math.floor(vim.o.columns * 0.5)
-  local height = math.min(#lines + 2, 20)
+  local height = math.min(#lines + 2, 15)
+
+  local title = string.format(" @%s%s %s:%d ", thread.author, status, thread.path or "?", thread.line or 0)
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "cursor",
@@ -226,7 +213,7 @@ function M.show_thread_popup(thread)
     height = height,
     style = "minimal",
     border = "rounded",
-    title = " r: reply | Esc: close ",
+    title = title,
     title_pos = "center",
   })
 
@@ -239,6 +226,30 @@ function M.show_thread_popup(thread)
     vim.api.nvim_win_close(win, true)
     M.reply(thread.id)
   end, { buffer = buf })
+  
+  -- Delete pending comment with d
+  if thread.pending then
+    vim.keymap.set("n", "d", function()
+      vim.api.nvim_win_close(win, true)
+      M.delete_pending(thread.line)
+    end, { buffer = buf })
+  end
+end
+
+function M.delete_pending(line)
+  local review = require("pr.review")
+  if not review.current then return end
+  
+  local current_file = review.current.files[review.current.file_index]
+  
+  for i, comment in ipairs(review.current.pending_comments) do
+    if comment.path == current_file and comment.line == line then
+      table.remove(review.current.pending_comments, i)
+      vim.notify("Deleted pending comment", vim.log.levels.INFO)
+      M.show_all_comments()
+      return
+    end
+  end
 end
 
 function M.reply(thread_id)

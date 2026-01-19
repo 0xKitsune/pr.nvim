@@ -39,16 +39,7 @@ function M._open_comment_window(with_suggestion)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].filetype = ""
 
-  -- Pre-fill content with header
-  local comment_type = with_suggestion and "Suggestion" or "Comment"
-  local initial_lines = {
-    string.format("── %s ──────────────────────────────", comment_type),
-    string.format("File: %s", file),
-    string.format("Line: %d", start_line),
-    "────────────────────────────────────────",
-    "",
-  }
-  
+  local initial_lines = {}
   if with_suggestion then
     table.insert(initial_lines, "```suggestion")
     for _, line in ipairs(selected_lines) do
@@ -60,7 +51,11 @@ function M._open_comment_window(with_suggestion)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, initial_lines)
 
   local width = math.floor(vim.o.columns * 0.5)
-  local height = math.max(#initial_lines + 2, 8)
+  local height = math.max(#initial_lines + 3, 5)
+
+  local title = with_suggestion
+    and string.format(" Suggestion %s:%d ", file, start_line)
+    or string.format(" Comment %s:%d ", file, start_line)
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "cursor",
@@ -70,7 +65,7 @@ function M._open_comment_window(with_suggestion)
     height = height,
     style = "minimal",
     border = "rounded",
-    title = " Enter: submit | Esc: cancel ",
+    title = title,
     title_pos = "center",
   })
 
@@ -82,12 +77,7 @@ function M._open_comment_window(with_suggestion)
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     vim.api.nvim_win_close(win, true)
     
-    -- Skip header lines (first 4 lines are header + separator)
-    local content_lines = {}
-    for i = 5, #lines do
-      table.insert(content_lines, lines[i])
-    end
-    local body = table.concat(content_lines, "\n")
+    local body = table.concat(lines, "\n")
 
     if body:gsub("%s", "") ~= "" then
       table.insert(review.current.pending_comments, {
