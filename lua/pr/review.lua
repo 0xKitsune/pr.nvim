@@ -244,10 +244,10 @@ function M.toggle_reviewed()
   if file then
     if M.current.reviewed[file] then
       M.current.reviewed[file] = nil
-      vim.notify("○ Unmarked: " .. file, vim.log.levels.INFO)
+      vim.notify("[ ] Unmarked: " .. file, vim.log.levels.INFO)
     else
       M.current.reviewed[file] = true
-      vim.notify("✓ Marked as reviewed: " .. file, vim.log.levels.INFO)
+      vim.notify("[x] Marked as reviewed: " .. file, vim.log.levels.INFO)
     end
     M.update_statusline()
   end
@@ -264,11 +264,11 @@ function M.update_statusline()
   local indicators = {}
   for i, file in ipairs(M.current.files) do
     if M.current.reviewed[file] then
-      table.insert(indicators, "✓")
+      table.insert(indicators, "x")
     elseif i == M.current.file_index then
-      table.insert(indicators, "●")
+      table.insert(indicators, "*")
     else
-      table.insert(indicators, "○")
+      table.insert(indicators, "-")
     end
   end
 
@@ -364,7 +364,7 @@ function M.submit(event)
 
   local ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event)
   if ok then
-    vim.notify("✓ Review submitted: " .. event, vim.log.levels.INFO)
+    vim.notify("Review submitted: " .. event, vim.log.levels.INFO)
     M.current.pending_comments = {}
   else
     vim.notify("Failed to submit: " .. (err or ""), vim.log.levels.ERROR)

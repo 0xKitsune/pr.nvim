@@ -86,8 +86,8 @@ function M._open_comment_window(with_suggestion)
         line = end_line,
         body = body,
       })
-      local icon = with_suggestion and "💡" or "💬"
-      vim.notify(string.format("%s Queued (%d pending)", icon, #review.current.pending_comments), vim.log.levels.INFO)
+      local label = with_suggestion and "Suggestion" or "Comment"
+      vim.notify(string.format("%s queued (%d pending)", label, #review.current.pending_comments), vim.log.levels.INFO)
       M.show_virtual_comment(start_line, body:sub(1, 30))
     end
   end
@@ -135,7 +135,7 @@ function M.show_virtual_comment(line, preview)
   local ns = vim.api.nvim_create_namespace("pr_pending_comments")
   pcall(function()
     vim.api.nvim_buf_set_extmark(0, ns, line - 1, 0, {
-      virt_text = { { " 💬 " .. preview .. "...", "Comment" } },
+      virt_text = { { " [comment] " .. preview .. "...", "Comment" } },
       virt_text_pos = "eol",
     })
   end)

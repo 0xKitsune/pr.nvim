@@ -42,7 +42,7 @@ function M.show_all_comments()
     if thread.line then
       pcall(function()
         vim.api.nvim_buf_set_extmark(0, ns, thread.line - 1, 0, {
-          virt_text = { { string.format(" 💬 %s: %s", thread.author, thread.body:sub(1, 30)), "Comment" } },
+          virt_text = { { string.format(" [%s] %s", thread.author, thread.body:sub(1, 30)), "Comment" } },
           virt_text_pos = "eol",
         })
       end)
@@ -96,8 +96,8 @@ end
 
 function M.show_thread_popup(thread)
   local lines = {
-    string.format("📍 %s:%d", thread.path or "?", thread.line or 0),
-    string.format("👤 @%s", thread.author),
+    string.format("%s:%d", thread.path or "?", thread.line or 0),
+    string.format("@%s", thread.author),
     "",
   }
 

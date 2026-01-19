@@ -4,12 +4,12 @@ Review GitHub pull requests directly in Neovim.
 
 ## Features
 
-- 🔍 Browse and open PRs from any repo
-- 📝 Add comments on specific lines
-- 💡 Add code suggestions
-- 💬 Navigate and reply to comment threads
-- ✅ Submit reviews (approve, comment, request changes)
-- 🔭 Telescope integration
+- Browse and open PRs from any repo
+- Add comments on specific lines
+- Add code suggestions
+- Navigate and reply to comment threads
+- Submit reviews (approve, comment, request changes)
+- Telescope integration
 
 ## Requirements
 
@@ -23,25 +23,12 @@ Review GitHub pull requests directly in Neovim.
 
 ```lua
 {
-  "sekiro/pr.nvim",
+  "your-username/pr.nvim",
   dependencies = {
     "nvim-telescope/telescope.nvim", -- optional
   },
   config = function()
-    require("pr").setup({
-      provider = "github",
-      keymaps = {
-        comment = "c",
-        suggest = "s",
-        reply = "r",
-        approve = "a",
-        next_file = "]f",
-        prev_file = "[f",
-        next_comment = "]c",
-        prev_comment = "[c",
-        close = "q",
-      },
-    })
+    require("pr").setup()
   end,
 }
 ```
@@ -61,38 +48,38 @@ Review GitHub pull requests directly in Neovim.
 | `:PR reply` | Reply to current thread |
 | `:PR threads` | List all comment threads |
 | `:PR submit` | Submit review |
-| `:PR diff` | Toggle diff view |
 | `:PR files` | List changed files |
 | `:PR close` | Exit review mode |
 
-### Review Mode Keymaps
-
-When reviewing a PR, these keymaps are active:
+### Keybindings (in review mode)
 
 | Key | Action |
 |-----|--------|
+| `f` | File picker |
+| `]f` / `[f` | Next/prev file |
+| `]c` / `[c` | Next/prev comment |
 | `c` | Add comment |
 | `s` | Add suggestion |
 | `r` | Reply to thread |
+| `v` | Toggle file as reviewed |
 | `a` | Approve PR |
-| `]f` | Next file |
-| `[f` | Previous file |
-| `]c` | Next comment |
-| `[c` | Previous comment |
-| `q` | Close review |
+| `S` | Submit review |
+| `q` | Close file tab |
+| `Q` | Close entire review |
+| `?` | Show help |
+
+### File picker
+
+| Key | Action |
+|-----|--------|
+| `<CR>` | Open file diff |
+| `<C-v>` | Toggle reviewed status |
 
 ## Workflow
 
 1. `:PR` to open the PR picker
-2. Select a PR to open it in diff view
-3. Navigate with `]f`/`[f` (files) and `]c`/`[c` (comments)
-4. Press `c` to comment, `s` to suggest changes
-5. `:PR submit` to submit your review
-
-## TODO
-
-- [ ] GitLab support
-- [ ] Inline diff view per file
-- [ ] Resolve/unresolve threads
-- [ ] Create new PRs
-- [ ] Checkout PR branch
+2. Select a PR to open file picker
+3. Select a file to view side-by-side diff
+4. Navigate with `]f`/`[f` (files) and `]c`/`[c` (comments)
+5. Press `c` to comment, `s` to suggest changes
+6. `S` to submit your review

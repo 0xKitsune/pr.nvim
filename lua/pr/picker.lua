@@ -176,7 +176,7 @@ function M._telescope_files(files, current)
     finder = finders.new_table({
       results = files,
       entry_maker = function(file)
-        local status = current.reviewed[file] and "✓" or "○"
+        local status = current.reviewed[file] and "x" or "-"
         return {
           value = file,
           display = function()
@@ -209,17 +209,17 @@ function M._telescope_files(files, current)
         local selection = action_state.get_selected_entry()
         if current.reviewed[selection.value] then
           current.reviewed[selection.value] = nil
-          vim.notify("○ Unmarked: " .. selection.value, vim.log.levels.INFO)
+          vim.notify("[ ] Unmarked: " .. selection.value, vim.log.levels.INFO)
         else
           current.reviewed[selection.value] = true
-          vim.notify("✓ Marked: " .. selection.value, vim.log.levels.INFO)
+          vim.notify("[x] Marked: " .. selection.value, vim.log.levels.INFO)
         end
         -- Refresh picker
         local picker = action_state.get_current_picker(prompt_bufnr)
         picker:refresh(finders.new_table({
           results = files,
           entry_maker = function(file)
-            local status = current.reviewed[file] and "✓" or "○"
+            local status = current.reviewed[file] and "x" or "-"
             return {
               value = file,
               display = function()
@@ -238,16 +238,16 @@ function M._telescope_files(files, current)
         local selection = action_state.get_selected_entry()
         if current.reviewed[selection.value] then
           current.reviewed[selection.value] = nil
-          vim.notify("○ Unmarked: " .. selection.value, vim.log.levels.INFO)
+          vim.notify("[ ] Unmarked: " .. selection.value, vim.log.levels.INFO)
         else
           current.reviewed[selection.value] = true
-          vim.notify("✓ Marked: " .. selection.value, vim.log.levels.INFO)
+          vim.notify("[x] Marked: " .. selection.value, vim.log.levels.INFO)
         end
         local picker = action_state.get_current_picker(prompt_bufnr)
         picker:refresh(finders.new_table({
           results = files,
           entry_maker = function(file)
-            local status = current.reviewed[file] and "✓" or "○"
+            local status = current.reviewed[file] and "x" or "-"
             return {
               value = file,
               display = function()
