@@ -55,13 +55,14 @@ function M.show_all_comments()
   local ns = vim.api.nvim_create_namespace("pr_threads")
   vim.api.nvim_buf_clear_namespace(right_buf, ns, 0, -1)
 
-  local current_file = review.current.files[review.current.file_index]
+  -- Show all comments (API + pending)
+  local file_threads = M.get_current_file_threads()
   
-  for _, thread in ipairs(M.threads) do
-    if thread.line and thread.path == current_file then
+  for _, thread in ipairs(file_threads) do
+    if thread.line then
       pcall(function()
         vim.api.nvim_buf_set_extmark(right_buf, ns, thread.line - 1, 0, {
-          sign_text = "💬",
+          sign_text = thread.pending and "📝" or "💬",
           sign_hl_group = "Comment",
         })
       end)
@@ -107,11 +108,28 @@ function M.get_current_file_threads()
   if not current_file then return M.threads end
   
   local file_threads = {}
+  
+  -- Add API threads
   for _, thread in ipairs(M.threads) do
     if thread.path == current_file then
       table.insert(file_threads, thread)
     end
   end
+  
+  -- Add pending comments
+  for _, comment in ipairs(review.current.pending_comments or {}) do
+    if comment.path == current_file then
+      table.insert(file_threads, {
+        id = "pending_" .. comment.line,
+        path = comment.path,
+        line = comment.line,
+        body = comment.body,
+        author = "you (pending)",
+        pending = true,
+      })
+    end
+  end
+  
   return file_threads
 end
 

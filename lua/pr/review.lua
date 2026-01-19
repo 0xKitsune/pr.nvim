@@ -37,6 +37,10 @@ function M.open(pr_number, owner, repo)
       pending_comments = saved and saved.pending_comments or {},
     }
 
+    if saved and #(saved.pending_comments or {}) > 0 then
+      vim.notify(string.format("Restored %d pending comments", #saved.pending_comments), vim.log.levels.INFO)
+    end
+
     -- Pre-fetch diff in background
     github.get_diff(owner, repo, pr_number, function(_)
       -- Diff cached
