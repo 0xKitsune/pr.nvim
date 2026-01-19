@@ -103,9 +103,24 @@ function M.get_comments(owner, repo, pr_number, callback)
 end
 
 function M.add_comment(owner, repo, pr_number, path, line, body)
+  -- Get the head commit SHA for this PR
+  local sha_cmd = string.format("gh pr view %s --repo %s/%s --json headRefOid --jq .headRefOid", pr_number, owner, repo)
+  local commit_id = vim.fn.system(sha_cmd):gsub("%s+", "")
+  
+  if vim.v.shell_error ~= 0 or commit_id == "" then
+    return nil, "Failed to get commit SHA"
+  end
+  
+  -- Use gh pr comment for simpler line comments, or create review comment
   local cmd = string.format(
-    "gh api repos/%s/%s/pulls/%s/comments -f body=%q -f path=%q -f line=%d -f side=RIGHT 2>&1",
-    owner, repo, pr_number, body, path, line
+    "gh api repos/%s/%s/pulls/%s/comments " ..
+    "-f body=%q " ..
+    "-f path=%q " ..
+    "-f commit_id=%s " ..
+    "-F line=%d " ..
+    "-f side=RIGHT " ..
+    "-f subject_type=line 2>&1",
+    owner, repo, pr_number, body, path, commit_id, line
   )
   local result = vim.fn.system(cmd)
 
