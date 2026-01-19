@@ -45,6 +45,7 @@ function M.get_review_status(pr, current_user)
   
   -- Check if current user has reviewed
   local your_review = nil
+  local has_any_review = #reviews > 0
   for _, review in ipairs(reviews) do
     if review.author and review.author.login == current_user then
       your_review = review.state
@@ -59,7 +60,11 @@ function M.get_review_status(pr, current_user)
   elseif decision == "CHANGES_REQUESTED" then
     table.insert(parts, "✗ changes requested")
   elseif decision == "REVIEW_REQUIRED" then
-    table.insert(parts, "○ review required")
+    table.insert(parts, "◐ review requested")
+  elseif has_any_review then
+    table.insert(parts, "● reviewed")
+  else
+    table.insert(parts, "○")
   end
   
   -- Your review status
