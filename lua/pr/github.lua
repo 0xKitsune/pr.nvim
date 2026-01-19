@@ -17,15 +17,61 @@ end
 
 function M.list_prs(filter, callback)
   filter = filter or ""
-  local cmd = string.format("gh pr list --json number,title,author,headRefName,state %s", filter)
+  local cmd = string.format("gh pr list --json number,title,author,headRefName,state,reviewDecision,reviews %s", filter)
   
   async.run_json(cmd, function(prs, err)
     if err then
       callback(nil, "Failed to list PRs: " .. err)
       return
     end
-    callback(prs, nil)
+    
+    -- Get current user for "approved by you" check
+    local user_cmd = "gh api user --jq .login"
+    async.run(user_cmd, function(username, _)
+      local current_user = (username or ""):gsub("%s+", "")
+      
+      for _, pr in ipairs(prs or {}) do
+        pr.review_status = M.get_review_status(pr, current_user)
+      end
+      
+      callback(prs, nil)
+    end)
   end)
+end
+
+function M.get_review_status(pr, current_user)
+  local decision = pr.reviewDecision or ""
+  local reviews = pr.reviews or {}
+  
+  -- Check if current user has reviewed
+  local your_review = nil
+  for _, review in ipairs(reviews) do
+    if review.author and review.author.login == current_user then
+      your_review = review.state
+    end
+  end
+  
+  local status = ""
+  
+  if decision == "APPROVED" then
+    status = "✓"
+  elseif decision == "CHANGES_REQUESTED" then
+    status = "✗"
+  elseif decision == "REVIEW_REQUIRED" then
+    status = "○"
+  end
+  
+  if your_review then
+    if your_review == "APPROVED" then
+      status = status .. " (you ✓)"
+    elseif your_review == "CHANGES_REQUESTED" then
+      status = status .. " (you ✗)"
+    elseif your_review == "COMMENTED" or your_review == "PENDING" then
+      status = status .. " (reviewed)"
+    end
+  end
+  
+  return status
 end
 
 function M.get_pr(owner, repo, pr_number, callback)

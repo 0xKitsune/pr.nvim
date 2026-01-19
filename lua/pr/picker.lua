@@ -68,9 +68,16 @@ function M._telescope_prs(prs)
     finder = finders.new_table({
       results = prs,
       entry_maker = function(pr)
+        local status = pr.review_status or ""
+        local display = string.format("#%-4d %-45s @%-15s %s", 
+          pr.number, 
+          pr.title:sub(1, 45), 
+          pr.author.login,
+          status
+        )
         return {
           value = pr,
-          display = string.format("#%-4d %-50s @%s", pr.number, pr.title:sub(1, 50), pr.author.login),
+          display = display,
           ordinal = pr.title .. " " .. pr.author.login .. " " .. pr.number,
         }
       end,
