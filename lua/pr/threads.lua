@@ -191,8 +191,6 @@ function M.goto_thread_by_id(id)
 end
 
 function M.show_thread_popup(thread)
-  local status = thread.pending and " (pending)" or ""
-  
   local lines = vim.split(thread.body or "", "\n")
 
   local buf = vim.api.nvim_create_buf(false, true)
@@ -203,7 +201,11 @@ function M.show_thread_popup(thread)
   local width = math.floor(vim.o.columns * 0.5)
   local height = math.min(#lines + 2, 15)
 
-  local title = string.format(" @%s%s %s:%d ", thread.author, status, thread.path or "?", thread.line or 0)
+  local author = thread.author or "unknown"
+  if thread.pending then
+    author = "you (pending)"
+  end
+  local title = string.format(" @%s %s:%d ", author, thread.path or "?", thread.line or 0)
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "cursor",

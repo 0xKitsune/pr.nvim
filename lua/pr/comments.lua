@@ -82,12 +82,11 @@ function M._open_comment_window(with_suggestion)
     if body:gsub("%s", "") ~= "" then
       table.insert(review.current.pending_comments, {
         path = file,
-        line = end_line,
+        line = start_line,
         body = body,
       })
       local label = with_suggestion and "Suggestion" or "Comment"
       vim.notify(string.format("%s queued (%d pending)", label, #review.current.pending_comments), vim.log.levels.INFO)
-      M.show_virtual_comment(start_line, body:sub(1, 30))
       
       -- Refresh comment display
       require("pr.threads").show_all_comments()
