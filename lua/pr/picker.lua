@@ -207,15 +207,26 @@ function M._telescope_files(files, current)
 
       local function toggle_reviewed()
         local selection = action_state.get_selected_entry()
-        local picker = action_state.get_current_picker(prompt_bufnr)
-        local row = picker:get_selection_row()
+        if not selection then return end
         
-        if current.reviewed[selection.value] then
-          current.reviewed[selection.value] = nil
+        local selected_file = selection.value
+        
+        if current.reviewed[selected_file] then
+          current.reviewed[selected_file] = nil
         else
-          current.reviewed[selection.value] = true
+          current.reviewed[selected_file] = true
         end
         
+        -- Find index of current selection
+        local selected_idx = 1
+        for i, f in ipairs(files) do
+          if f == selected_file then
+            selected_idx = i
+            break
+          end
+        end
+        
+        local picker = action_state.get_current_picker(prompt_bufnr)
         picker:refresh(finders.new_table({
           results = files,
           entry_maker = function(file)
@@ -233,10 +244,13 @@ function M._telescope_files(files, current)
           end,
         }), { reset_prompt = false })
         
-        -- Restore selection position
-        vim.schedule(function()
-          picker:set_selection(row)
-        end)
+        -- Restore selection to same file
+        vim.defer_fn(function()
+          local current_picker = action_state.get_current_picker(prompt_bufnr)
+          if current_picker then
+            current_picker:set_selection(selected_idx - 1)
+          end
+        end, 10)
       end
 
       map("i", "<C-v>", toggle_reviewed)

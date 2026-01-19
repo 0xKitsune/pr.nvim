@@ -439,11 +439,31 @@ end
 
 function M.close_file()
   if not M.current then return end
+  
+  -- Delete the current PR buffers in this tab
+  local current_tab = vim.api.nvim_get_current_tabpage()
+  local wins = vim.api.nvim_tabpage_list_wins(current_tab)
+  local bufs_to_delete = {}
+  
+  for _, win in ipairs(wins) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("PR #%d+") then
+      table.insert(bufs_to_delete, buf)
+    end
+  end
+  
   local tabcount = #vim.api.nvim_list_tabpages()
   if tabcount > 1 then
     vim.cmd("tabclose")
   else
-    M.close()
+    -- Last tab, just go back to a new buffer
+    vim.cmd("enew")
+  end
+  
+  -- Delete the buffers after closing tab
+  for _, buf in ipairs(bufs_to_delete) do
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end
 end
 
