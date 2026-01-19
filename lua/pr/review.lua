@@ -240,6 +240,7 @@ function M.setup_keymaps(buf)
   vim.keymap.set("v", config.suggest, function() require("pr.comments").add_suggestion() end, opts)
   vim.keymap.set("n", config.reply, function() require("pr.threads").reply() end, opts)
   vim.keymap.set("n", config.approve, function() M.submit("approve") end, opts)
+  vim.keymap.set("n", "x", function() M.submit("request_changes") end, vim.tbl_extend("force", opts, { desc = "Request changes" }))
   vim.keymap.set("n", "v", function() M.toggle_reviewed() end, vim.tbl_extend("force", opts, { desc = "Toggle reviewed" }))
   vim.keymap.set("n", "S", function() M.submit() end, vim.tbl_extend("force", opts, { desc = "Submit review" }))
   vim.keymap.set("n", "q", function() M.close_file() end, vim.tbl_extend("force", opts, { desc = "Close file" }))
@@ -322,20 +323,21 @@ end
 function M.show_help()
   local help = {
     "PR Review Keybindings",
-    "─────────────────────",
+    "──────────────────────────────",
     "",
-    "f         File picker",
-    "]f / [f   Next/prev file",
-    "]c / [c   Next/prev comment",
-    "c         Add comment",
-    "s         Add suggestion",
-    "r         Reply to thread",
-    "Enter     Open comment at cursor",
-    "v         Toggle file reviewed",
-    "a         Approve PR",
-    "S         Submit review",
-    "q         Close file tab",
-    "Q         Close entire review",
+    "f           File picker",
+    "]f / [f     Next/prev file",
+    "]c / [c     Next/prev comment",
+    "c           Add comment",
+    "s           Add suggestion",
+    "r           Reply to thread",
+    "Enter       Open comment at cursor",
+    "v           Toggle file reviewed",
+    "a           Approve PR",
+    "x           Request changes",
+    "S           Submit review",
+    "q           Close file tab",
+    "Q           Close entire review",
     "",
     "Press Esc to close",
   }
@@ -345,7 +347,7 @@ function M.show_help()
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].modifiable = false
 
-  local width = 30
+  local width = 36
   local height = #help
 
   local win = vim.api.nvim_open_win(buf, true, {

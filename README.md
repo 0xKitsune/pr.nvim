@@ -66,6 +66,7 @@ Review GitHub pull requests directly in Neovim.
 | `Enter` | Open comment at cursor |
 | `v` | Toggle file as reviewed |
 | `a` | Approve PR |
+| `x` | Request changes |
 | `S` | Submit review (choose type) |
 | `q` | Close current file tab |
 | `Q` | Close entire review |
