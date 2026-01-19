@@ -320,7 +320,7 @@ function M.show_help()
     "c         Add comment",
     "s         Add suggestion",
     "r         Reply to thread",
-    "<CR>      Open comment at cursor",
+    "Enter     Open comment at cursor",
     "v         Toggle file reviewed",
     "a         Approve PR",
     "S         Submit review",

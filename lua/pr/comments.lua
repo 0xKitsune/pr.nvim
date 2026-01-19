@@ -132,10 +132,22 @@ function M.get_current_file()
 end
 
 function M.show_virtual_comment(line, preview)
+  -- Find the HEAD (right) buffer
+  local right_buf = nil
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("PR #%d+ HEAD:") then
+      right_buf = buf
+      break
+    end
+  end
+  
+  if not right_buf then return end
+  
   local ns = vim.api.nvim_create_namespace("pr_pending_comments")
   pcall(function()
-    vim.api.nvim_buf_set_extmark(0, ns, line - 1, 0, {
-      virt_text = { { " [comment] " .. preview .. "...", "Comment" } },
+    vim.api.nvim_buf_set_extmark(right_buf, ns, line - 1, 0, {
+      virt_text = { { " 💬 " .. preview .. "...", "Comment" } },
       virt_text_pos = "eol",
     })
   end)
