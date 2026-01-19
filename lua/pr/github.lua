@@ -15,26 +15,43 @@ function M.get_repo_info()
   return owner, repo
 end
 
-function M.list_prs(filter, callback)
+function M.list_prs(filter, callback, on_more)
   filter = filter or ""
-  local cmd = string.format("gh pr list --limit 100 --json number,title,author,headRefName,state,reviewDecision,reviews,reviewRequests %s", filter)
   
-  async.run_json(cmd, function(prs, err)
-    if err then
-      callback(nil, "Failed to list PRs: " .. err)
-      return
-    end
+  -- Get current user first (cached)
+  local user_cmd = "gh api user --jq .login"
+  async.run(user_cmd, function(username, _)
+    local current_user = (username or ""):gsub("%s+", "")
     
-    -- Get current user for "approved by you" check
-    local user_cmd = "gh api user --jq .login"
-    async.run(user_cmd, function(username, _)
-      local current_user = (username or ""):gsub("%s+", "")
+    -- First batch - quick load
+    local cmd_first = string.format("gh pr list --limit 15 --json number,title,author,headRefName,state,reviewDecision,reviews,reviewRequests %s", filter)
+    
+    async.run_json(cmd_first, function(prs, err)
+      if err then
+        callback(nil, "Failed to list PRs: " .. err)
+        return
+      end
       
       for _, pr in ipairs(prs or {}) do
         pr.review_status = M.get_review_status(pr, current_user)
       end
       
       callback(prs, nil)
+      
+      -- Load more in background
+      if on_more then
+        local cmd_all = string.format("gh pr list --limit 100 --json number,title,author,headRefName,state,reviewDecision,reviews,reviewRequests %s", filter)
+        
+        async.run_json(cmd_all, function(all_prs, all_err)
+          if all_err or not all_prs then return end
+          
+          for _, pr in ipairs(all_prs) do
+            pr.review_status = M.get_review_status(pr, current_user)
+          end
+          
+          on_more(all_prs)
+        end)
+      end
     end)
   end)
 end

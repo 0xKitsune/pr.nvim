@@ -11,6 +11,8 @@ function M.list_prs(opts)
 
   vim.notify("Loading PRs...", vim.log.levels.INFO)
 
+  local current_picker = nil
+  
   github.list_prs(filter, function(prs, err)
     if err then
       vim.notify(err, vim.log.levels.ERROR)
@@ -24,11 +26,35 @@ function M.list_prs(opts)
 
     local ok, _ = pcall(require, "telescope.pickers")
     if ok then
-      M._telescope_prs(prs)
+      current_picker = M._telescope_prs(prs)
     else
       M._select_prs(prs)
     end
+  end, function(all_prs)
+    -- Refresh picker with all PRs
+    if current_picker and vim.api.nvim_win_is_valid(current_picker.results_win or -1) then
+      local finders = require("telescope.finders")
+      current_picker:refresh(finders.new_table({
+        results = all_prs,
+        entry_maker = M._pr_entry_maker,
+      }), { reset_prompt = false })
+    end
   end)
+end
+
+function M._pr_entry_maker(pr)
+  local status = pr.review_status or ""
+  local display = string.format("#%-5d   %-40s   @%-12s   %s", 
+    pr.number, 
+    pr.title:sub(1, 40), 
+    pr.author.login,
+    status
+  )
+  return {
+    value = pr,
+    display = display,
+    ordinal = pr.title .. " " .. pr.author.login .. " " .. pr.number,
+  }
 end
 
 function M._select_prs(prs)
@@ -63,24 +89,11 @@ function M._telescope_prs(prs)
   opts.sorting_strategy = "ascending"
   opts.layout_config.prompt_position = "top"
 
-  pickers.new(opts, {
+  local picker = pickers.new(opts, {
     prompt_title = "Pull Requests",
     finder = finders.new_table({
       results = prs,
-      entry_maker = function(pr)
-        local status = pr.review_status or ""
-        local display = string.format("#%-5d   %-40s   @%-12s   %s", 
-          pr.number, 
-          pr.title:sub(1, 40), 
-          pr.author.login,
-          status
-        )
-        return {
-          value = pr,
-          display = display,
-          ordinal = pr.title .. " " .. pr.author.login .. " " .. pr.number,
-        }
-      end,
+      entry_maker = M._pr_entry_maker,
     }),
     sorter = conf.generic_sorter({}),
     attach_mappings = function(prompt_bufnr, _)
@@ -91,7 +104,9 @@ function M._telescope_prs(prs)
       end)
       return true
     end,
-  }):find()
+  })
+  picker:find()
+  return picker
 end
 
 function M.list_files()
