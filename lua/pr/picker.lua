@@ -69,9 +69,9 @@ function M._telescope_prs(prs)
       results = prs,
       entry_maker = function(pr)
         local status = pr.review_status or ""
-        local display = string.format("#%-4d %-45s @%-15s %s", 
+        local display = string.format("#%-5d   %-40s   @%-12s   %s", 
           pr.number, 
-          pr.title:sub(1, 45), 
+          pr.title:sub(1, 40), 
           pr.author.login,
           status
         )
