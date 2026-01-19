@@ -340,12 +340,14 @@ function M.show_help()
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
-    row = vim.o.lines - height - 4,
-    col = vim.o.columns - width - 3,
+    row = vim.o.lines - height - 6,
+    col = vim.o.columns - width - 4,
     width = width,
     height = height,
     style = "minimal",
     border = "rounded",
+    title = " ? ",
+    title_pos = "center",
   })
 
   vim.wo[win].winhl = "Normal:TelescopePromptNormal,FloatBorder:TelescopePromptBorder"
