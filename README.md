@@ -100,7 +100,7 @@ In comment popup: `r` to reply, `d` to delete pending comments, `Esc` to close.
 6. Press `c` to comment, `s` to suggest changes
 7. Mark files reviewed with `v`
 8. `S` to submit your review
-9. `q` to close (state is saved automatically)
+9. `Q` to close (state is saved automatically)
 
 ## Configuration
 
