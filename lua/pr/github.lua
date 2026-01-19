@@ -2,6 +2,38 @@ local M = {}
 local async = require("pr.async")
 local cache = require("pr.cache")
 
+-- Memory cache for PR list
+M.pr_cache = nil
+M.current_user = nil
+M.prefetch_in_progress = false
+
+-- Prefetch PRs in background (call on nvim start)
+function M.prefetch()
+  if M.prefetch_in_progress then return end
+  M.prefetch_in_progress = true
+  
+  -- Fetch user first (in parallel concept, but we need it for status)
+  if not M.current_user then
+    async.run("gh api user --jq .login", function(username, _)
+      M.current_user = (username or ""):gsub("%s+", "")
+    end)
+  end
+  
+  -- Fetch full PR list with all details
+  local cmd = "gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests"
+  async.run_json(cmd, function(prs, err)
+    M.prefetch_in_progress = false
+    if err or not prs then return end
+    
+    -- Compute review status for each PR (user might not be ready yet, that's ok)
+    for _, pr in ipairs(prs) do
+      pr.review_status = M.get_review_status(pr, M.current_user or "")
+    end
+    
+    M.pr_cache = prs
+  end)
+end
+
 function M.get_repo_info()
   local remote = vim.fn.system("git remote get-url origin 2>/dev/null"):gsub("%s+", "")
   if vim.v.shell_error ~= 0 then
@@ -15,42 +47,98 @@ function M.get_repo_info()
   return owner, repo
 end
 
-function M.list_prs(filter, callback, on_more)
+function M.list_prs(filter, callback, on_update)
   filter = filter or ""
   
-  -- Get current user first (cached)
-  local user_cmd = "gh api user --jq .login"
-  async.run(user_cmd, function(username, _)
-    local current_user = (username or ""):gsub("%s+", "")
+  -- If we have cached data, show it immediately
+  if M.pr_cache and #M.pr_cache > 0 and filter == "" then
+    callback(M.pr_cache, nil)
     
-    -- First batch - quick load
-    local cmd_first = string.format("gh pr list --limit 15 --json number,title,author,headRefName,state,reviewDecision,reviews,reviewRequests %s", filter)
+    -- Refresh full data in background (skip fast load, we already have data)
+    if on_update then
+      M.fetch_full_prs(filter, on_update)
+    end
+    return
+  end
+  
+  -- No cache - fetch fresh (fast first, then full update)
+  M.fetch_fresh_prs(filter, function(prs)
+    callback(prs, nil)
+  end, on_update)
+end
+
+-- Full fetch only (used when cache already shown)
+function M.fetch_full_prs(filter, on_update)
+  if not M.current_user then
+    async.run("gh api user --jq .login", function(username, _)
+      M.current_user = (username or ""):gsub("%s+", "")
+      M.fetch_full_prs(filter, on_update)
+    end)
+    return
+  end
+  
+  local cmd = string.format("gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests %s", filter)
+  
+  async.run_json(cmd, function(prs, err)
+    if err or not prs then return end
     
-    async.run_json(cmd_first, function(prs, err)
-      if err then
-        callback(nil, "Failed to list PRs: " .. err)
-        return
+    for _, pr in ipairs(prs) do
+      pr.review_status = M.get_review_status(pr, M.current_user or "")
+    end
+    
+    if filter == "" then
+      M.pr_cache = prs
+    end
+    
+    if on_update then
+      on_update(prs)
+    end
+  end)
+end
+
+function M.fetch_fresh_prs(filter, callback, on_update)
+  -- Ensure we have user info (parallel fetch)
+  if not M.current_user then
+    async.run("gh api user --jq .login", function(username, _)
+      M.current_user = (username or ""):gsub("%s+", "")
+    end)
+  end
+  
+  -- Fast first load - basic info only
+  local cmd_fast = string.format("gh pr list --limit 50 --json number,title,author %s", filter)
+  
+  async.run_json(cmd_fast, function(prs, err)
+    if err or not prs then
+      if callback then callback({}, nil) end
+      return
+    end
+    
+    -- Show immediately with empty status
+    for _, pr in ipairs(prs) do
+      pr.review_status = ""
+    end
+    
+    if callback then
+      callback(prs)
+    end
+    
+    -- Now fetch full details in background
+    local cmd_full = string.format("gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests %s", filter)
+    
+    async.run_json(cmd_full, function(full_prs, full_err)
+      if full_err or not full_prs then return end
+      
+      for _, pr in ipairs(full_prs) do
+        pr.review_status = M.get_review_status(pr, M.current_user or "")
       end
       
-      for _, pr in ipairs(prs or {}) do
-        pr.review_status = M.get_review_status(pr, current_user)
+      -- Update cache if no filter
+      if filter == "" then
+        M.pr_cache = full_prs
       end
       
-      callback(prs, nil)
-      
-      -- Load more in background
-      if on_more then
-        local cmd_all = string.format("gh pr list --limit 100 --json number,title,author,headRefName,state,reviewDecision,reviews,reviewRequests %s", filter)
-        
-        async.run_json(cmd_all, function(all_prs, all_err)
-          if all_err or not all_prs then return end
-          
-          for _, pr in ipairs(all_prs) do
-            pr.review_status = M.get_review_status(pr, current_user)
-          end
-          
-          on_more(all_prs)
-        end)
+      if on_update then
+        on_update(full_prs)
       end
     end)
   end)
@@ -79,36 +167,52 @@ function M.get_review_status(pr, current_user)
     end
   end
   
-  local parts = {}
+  local icon = ""
+  local status_text = ""
   
   -- Overall status
   if decision == "APPROVED" then
-    table.insert(parts, "✓ approved")
+    icon = "✓"
+    status_text = "approved"
   elseif decision == "CHANGES_REQUESTED" then
-    table.insert(parts, "✗ changes requested")
+    icon = "✗"
+    status_text = "changes requested"
   elseif has_any_review then
-    table.insert(parts, "● reviewed")
+    icon = "●"
   else
-    table.insert(parts, "○")
+    icon = "○"
   end
   
-  -- Add review requested indicator if you are specifically requested
+  -- Build status parts (joined by comma)
+  local status_parts = {}
+  if status_text ~= "" then
+    table.insert(status_parts, status_text)
+  end
   if you_requested then
-    table.insert(parts, "(review requested)")
+    table.insert(status_parts, "review requested")
   end
   
-  -- Your review status
+  -- Your review status (in parentheses)
+  local your_part = ""
   if your_review then
     if your_review == "APPROVED" then
-      table.insert(parts, "(approved by you)")
+      your_part = "(approved by you)"
     elseif your_review == "CHANGES_REQUESTED" then
-      table.insert(parts, "(changes requested by you)")
+      your_part = "(changes requested by you)"
     elseif your_review == "COMMENTED" or your_review == "PENDING" then
-      table.insert(parts, "(reviewed by you)")
+      your_part = "(reviewed by you)"
     end
   end
   
-  return table.concat(parts, " ")
+  local result = icon
+  if #status_parts > 0 then
+    result = result .. " " .. table.concat(status_parts, ", ")
+  end
+  if your_part ~= "" then
+    result = result .. " " .. your_part
+  end
+  
+  return result
 end
 
 function M.get_pr(owner, repo, pr_number, callback)

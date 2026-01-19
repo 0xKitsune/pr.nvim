@@ -16,6 +16,11 @@ M.config = {
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   require("pr.commands").setup()
+  
+  -- Prefetch PR list in background so it's ready when user opens picker
+  vim.defer_fn(function()
+    require("pr.github").prefetch()
+  end, 100)
 end
 
 return M

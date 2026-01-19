@@ -60,7 +60,7 @@ require("pr").setup()
 
 | Command | Description |
 |---------|-------------|
-| `:PR` | List open PRs (telescope picker) |
+| `:PR` | List open PRs (filter by title, author, number, or status like `approved`, `changes requested`, `review requested`) |
 | `:PR 123` | Open PR #123 in current repo |
 | `:PR owner/repo#123` | Open PR from any repo |
 | `:PR @username` | List PRs by user |

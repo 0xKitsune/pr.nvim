@@ -9,9 +9,12 @@ function M.list_prs(opts)
     filter = "--author " .. opts.author
   end
 
-  vim.notify("Loading PRs...", vim.log.levels.INFO)
-
   local current_picker = nil
+  local has_cache = github.pr_cache and #github.pr_cache > 0 and filter == ""
+  
+  if not has_cache then
+    vim.notify("Loading PRs...", vim.log.levels.INFO)
+  end
   
   github.list_prs(filter, function(prs, err)
     if err then
@@ -31,13 +34,31 @@ function M.list_prs(opts)
       M._select_prs(prs)
     end
   end, function(all_prs)
-    -- Refresh picker with all PRs
+    -- Refresh picker with fresh PRs, preserving selection
     if current_picker and vim.api.nvim_win_is_valid(current_picker.results_win or -1) then
+      local action_state = require("telescope.actions.state")
       local finders = require("telescope.finders")
+      
+      -- Get current selection
+      local selection = action_state.get_selected_entry()
+      local selected_number = selection and selection.value and selection.value.number
+      
       current_picker:refresh(finders.new_table({
         results = all_prs,
         entry_maker = M._pr_entry_maker,
       }), { reset_prompt = false })
+      
+      -- Restore selection
+      if selected_number then
+        vim.defer_fn(function()
+          for i, pr in ipairs(all_prs) do
+            if pr.number == selected_number then
+              current_picker:set_selection(i - 1)
+              break
+            end
+          end
+        end, 10)
+      end
     end
   end)
 end
@@ -47,13 +68,13 @@ function M._pr_entry_maker(pr)
   local display = string.format("#%-5d   %-40s   @%-12s   %s", 
     pr.number, 
     pr.title:sub(1, 40), 
-    pr.author.login,
+    pr.author.login:sub(1, 12),
     status
   )
   return {
     value = pr,
     display = display,
-    ordinal = pr.title .. " " .. pr.author.login .. " " .. pr.number,
+    ordinal = pr.title .. " " .. pr.author.login .. " " .. pr.number .. " " .. status,
   }
 end
 
