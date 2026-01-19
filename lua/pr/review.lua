@@ -328,8 +328,6 @@ function M.show_help()
     "──────────────────────────────",
     "",
     "f           File picker",
-    "]f / [f     Next/prev file",
-    "]c / [c     Next/prev comment",
     "c           Add comment",
     "s           Add suggestion",
     "r           Reply to thread",
@@ -338,6 +336,9 @@ function M.show_help()
     "S           Submit review",
     "q           Close file tab",
     "Q           Close entire review",
+    "",
+    "]f / [f     Next/prev file",
+    "]c / [c     Next/prev comment",
     "",
     "Press Esc to close",
   }
