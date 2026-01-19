@@ -176,7 +176,7 @@ function M._telescope_files(files, current)
     finder = finders.new_table({
       results = files,
       entry_maker = function(file)
-        local status = current.reviewed[file] and "x" or "-"
+        local status = current.reviewed[file] and "✓" or " "
         return {
           value = file,
           display = function()
@@ -205,21 +205,21 @@ function M._telescope_files(files, current)
         require("pr.review").open_file(selection.value)
       end)
 
-      map("i", "<C-v>", function()
+      local function toggle_reviewed()
         local selection = action_state.get_selected_entry()
+        local picker = action_state.get_current_picker(prompt_bufnr)
+        local row = picker:get_selection_row()
+        
         if current.reviewed[selection.value] then
           current.reviewed[selection.value] = nil
-          vim.notify("[ ] Unmarked: " .. selection.value, vim.log.levels.INFO)
         else
           current.reviewed[selection.value] = true
-          vim.notify("[x] Marked: " .. selection.value, vim.log.levels.INFO)
         end
-        -- Refresh picker
-        local picker = action_state.get_current_picker(prompt_bufnr)
+        
         picker:refresh(finders.new_table({
           results = files,
           entry_maker = function(file)
-            local status = current.reviewed[file] and "x" or "-"
+            local status = current.reviewed[file] and "✓" or " "
             return {
               value = file,
               display = function()
@@ -232,35 +232,15 @@ function M._telescope_files(files, current)
             }
           end,
         }), { reset_prompt = false })
-      end)
+        
+        -- Restore selection position
+        vim.schedule(function()
+          picker:set_selection(row)
+        end)
+      end
 
-      map("n", "<C-v>", function()
-        local selection = action_state.get_selected_entry()
-        if current.reviewed[selection.value] then
-          current.reviewed[selection.value] = nil
-          vim.notify("[ ] Unmarked: " .. selection.value, vim.log.levels.INFO)
-        else
-          current.reviewed[selection.value] = true
-          vim.notify("[x] Marked: " .. selection.value, vim.log.levels.INFO)
-        end
-        local picker = action_state.get_current_picker(prompt_bufnr)
-        picker:refresh(finders.new_table({
-          results = files,
-          entry_maker = function(file)
-            local status = current.reviewed[file] and "x" or "-"
-            return {
-              value = file,
-              display = function()
-                return displayer({
-                  { status, current.reviewed[file] and "DiagnosticOk" or "Comment" },
-                  file,
-                })
-              end,
-              ordinal = file,
-            }
-          end,
-        }), { reset_prompt = false })
-      end)
+      map("i", "<C-v>", toggle_reviewed)
+      map("n", "<C-v>", toggle_reviewed)
 
       return true
     end,

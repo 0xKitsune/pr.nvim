@@ -244,10 +244,10 @@ function M.toggle_reviewed()
   if file then
     if M.current.reviewed[file] then
       M.current.reviewed[file] = nil
-      vim.notify("[ ] Unmarked: " .. file, vim.log.levels.INFO)
+      vim.notify("Unmarked: " .. file, vim.log.levels.INFO)
     else
       M.current.reviewed[file] = true
-      vim.notify("[x] Marked as reviewed: " .. file, vim.log.levels.INFO)
+      vim.notify("Reviewed: " .. file, vim.log.levels.INFO)
     end
     M.update_statusline()
   end
@@ -264,11 +264,11 @@ function M.update_statusline()
   local indicators = {}
   for i, file in ipairs(M.current.files) do
     if M.current.reviewed[file] then
-      table.insert(indicators, "x")
+      table.insert(indicators, "✓")
     elseif i == M.current.file_index then
       table.insert(indicators, "*")
     else
-      table.insert(indicators, "-")
+      table.insert(indicators, ".")
     end
   end
 
