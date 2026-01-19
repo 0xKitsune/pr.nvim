@@ -77,7 +77,15 @@ Review GitHub pull requests directly in Neovim.
 | `Enter` | Open file diff |
 | `Ctrl+v` | Toggle reviewed status |
 
-### Comment window
+### Comment/thread popup
+
+| Key | Action |
+|-----|--------|
+| `r` | Reply to thread |
+| `d` | Delete pending comment (pending only) |
+| `Esc` / `q` | Close popup |
+
+### Comment input
 
 | Key | Action |
 |-----|--------|
@@ -95,6 +103,11 @@ Review GitHub pull requests directly in Neovim.
 7. Mark files reviewed with `v`
 8. `S` to submit your review
 9. `Q` to close (state is saved automatically)
+
+## Comment indicators
+
+- 💬 (blue) - Existing comment from GitHub
+- 💬 (yellow) - Pending comment (not yet submitted)
 
 ## Persistence
 
