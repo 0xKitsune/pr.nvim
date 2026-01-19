@@ -17,7 +17,7 @@ end
 
 function M.list_prs(filter, callback)
   filter = filter or ""
-  local cmd = string.format("gh pr list --limit 100 --json number,title,author,headRefName,state,reviewDecision,reviews %s", filter)
+  local cmd = string.format("gh pr list --limit 100 --json number,title,author,headRefName,state,reviewDecision,reviews,reviewRequests %s", filter)
   
   async.run_json(cmd, function(prs, err)
     if err then
@@ -42,6 +42,7 @@ end
 function M.get_review_status(pr, current_user)
   local decision = pr.reviewDecision or ""
   local reviews = pr.reviews or {}
+  local review_requests = pr.reviewRequests or {}
   
   -- Check if current user has reviewed
   local your_review = nil
@@ -49,6 +50,15 @@ function M.get_review_status(pr, current_user)
   for _, review in ipairs(reviews) do
     if review.author and review.author.login == current_user then
       your_review = review.state
+    end
+  end
+  
+  -- Check if current user is requested to review
+  local you_requested = false
+  for _, request in ipairs(review_requests) do
+    if request.login == current_user then
+      you_requested = true
+      break
     end
   end
   
@@ -65,9 +75,9 @@ function M.get_review_status(pr, current_user)
     table.insert(parts, "○")
   end
   
-  -- Add review requested indicator
-  if decision == "REVIEW_REQUIRED" then
-    table.insert(parts, "(review requested)")
+  -- Add review requested indicator if you are specifically requested
+  if you_requested then
+    table.insert(parts, "(review requested from you)")
   end
   
   -- Your review status
