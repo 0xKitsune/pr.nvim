@@ -186,7 +186,7 @@ function M._telescope_files(files, current)
     finder = finders.new_table({
       results = files,
       entry_maker = function(file)
-        local status = current.reviewed[file] and "✓" or " "
+        local status = current.reviewed[file] and "●" or "○"
         return {
           value = file,
           display = function()
@@ -240,7 +240,7 @@ function M._telescope_files(files, current)
         picker:refresh(finders.new_table({
           results = files,
           entry_maker = function(file)
-            local status = current.reviewed[file] and "✓" or " "
+            local status = current.reviewed[file] and "●" or "○"
             return {
               value = file,
               display = function()

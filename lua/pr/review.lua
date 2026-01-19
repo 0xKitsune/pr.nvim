@@ -308,11 +308,11 @@ function M.update_statusline()
   local indicators = {}
   for i, file in ipairs(M.current.files) do
     if M.current.reviewed[file] then
-      table.insert(indicators, "✓")
+      table.insert(indicators, "●")
     elseif i == M.current.file_index then
-      table.insert(indicators, "*")
+      table.insert(indicators, "◉")
     else
-      table.insert(indicators, ".")
+      table.insert(indicators, "○")
     end
   end
 

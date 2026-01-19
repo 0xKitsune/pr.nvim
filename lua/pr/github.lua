@@ -51,27 +51,29 @@ function M.get_review_status(pr, current_user)
     end
   end
   
-  local status = ""
+  local parts = {}
   
+  -- Overall status
   if decision == "APPROVED" then
-    status = "✓"
+    table.insert(parts, "✓ approved")
   elseif decision == "CHANGES_REQUESTED" then
-    status = "✗"
+    table.insert(parts, "✗ changes requested")
   elseif decision == "REVIEW_REQUIRED" then
-    status = "○"
+    table.insert(parts, "○ review required")
   end
   
+  -- Your review status
   if your_review then
     if your_review == "APPROVED" then
-      status = status .. " (you ✓)"
+      table.insert(parts, "(✓ you)")
     elseif your_review == "CHANGES_REQUESTED" then
-      status = status .. " (you ✗)"
+      table.insert(parts, "(✗ you)")
     elseif your_review == "COMMENTED" or your_review == "PENDING" then
-      status = status .. " (reviewed)"
+      table.insert(parts, "(reviewed by you)")
     end
   end
   
-  return status
+  return table.concat(parts, " ")
 end
 
 function M.get_pr(owner, repo, pr_number, callback)
