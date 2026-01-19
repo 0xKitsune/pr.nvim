@@ -150,6 +150,11 @@ function M.submit_review(owner, repo, pr_number, event, body)
   
   local cmd = string.format("gh pr review %s --repo %s/%s %s", pr_number, owner, repo, flag)
 
+  -- --comment requires a body
+  if event == "comment" and (not body or body == "") then
+    body = "Review submitted"
+  end
+  
   if body and body ~= "" then
     cmd = cmd .. string.format(" --body %q", body)
   end
