@@ -1,0 +1,173 @@
+local M = {}
+
+M.threads = {}
+M.current_index = 0
+
+function M.load(owner, repo, pr_number)
+  local github = require("pr.github")
+  local comments, err = github.get_comments(owner, repo, pr_number)
+
+  if err then
+    vim.notify(err, vim.log.levels.WARN)
+    return
+  end
+
+  M.threads = {}
+  for _, comment in ipairs(comments or {}) do
+    table.insert(M.threads, {
+      id = comment.id,
+      path = comment.path,
+      line = comment.line or comment.original_line,
+      body = comment.body,
+      author = comment.user and comment.user.login or "unknown",
+      created_at = comment.created_at,
+      in_reply_to = comment.in_reply_to_id,
+    })
+  end
+
+  M.current_index = 0
+  M.show_all_comments()
+
+  if #M.threads > 0 then
+    vim.notify(string.format("Loaded %d comment threads", #M.threads), vim.log.levels.INFO)
+  end
+end
+
+function M.show_all_comments()
+  -- Show virtual text for all comments
+  local ns = vim.api.nvim_create_namespace("pr_threads")
+  vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+
+  for _, thread in ipairs(M.threads) do
+    if thread.line then
+      pcall(function()
+        vim.api.nvim_buf_set_extmark(0, ns, thread.line - 1, 0, {
+          virt_text = { { string.format(" 💬 %s: %s", thread.author, thread.body:sub(1, 30)), "Comment" } },
+          virt_text_pos = "eol",
+        })
+      end)
+    end
+  end
+end
+
+function M.next()
+  if #M.threads == 0 then
+    vim.notify("No comment threads", vim.log.levels.INFO)
+    return
+  end
+  M.current_index = (M.current_index % #M.threads) + 1
+  M.goto_thread(M.current_index)
+end
+
+function M.prev()
+  if #M.threads == 0 then
+    vim.notify("No comment threads", vim.log.levels.INFO)
+    return
+  end
+  M.current_index = M.current_index - 1
+  if M.current_index < 1 then
+    M.current_index = #M.threads
+  end
+  M.goto_thread(M.current_index)
+end
+
+function M.goto_thread(index)
+  local thread = M.threads[index]
+  if not thread then return end
+
+  vim.notify(string.format("[%d/%d] %s:%d - @%s: %s",
+    index, #M.threads, thread.path or "?", thread.line or 0,
+    thread.author, thread.body:sub(1, 50)
+  ), vim.log.levels.INFO)
+
+  -- TODO: Jump to file and line if not in diff view
+  M.show_thread_popup(thread)
+end
+
+function M.goto_thread_by_id(id)
+  for i, thread in ipairs(M.threads) do
+    if thread.id == id then
+      M.current_index = i
+      M.goto_thread(i)
+      return
+    end
+  end
+end
+
+function M.show_thread_popup(thread)
+  local lines = {
+    string.format("📍 %s:%d", thread.path or "?", thread.line or 0),
+    string.format("👤 @%s", thread.author),
+    "",
+  }
+
+  for _, line in ipairs(vim.split(thread.body, "\n")) do
+    table.insert(lines, line)
+  end
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].filetype = "markdown"
+
+  local width = math.min(60, vim.o.columns - 10)
+  local height = math.min(#lines + 2, 15)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "cursor",
+    row = 1,
+    col = 0,
+    width = width,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+    title = " Comment Thread ",
+    title_pos = "center",
+  })
+
+  -- Close on q or Esc
+  vim.keymap.set("n", "q", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
+  vim.keymap.set("n", "<Esc>", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
+
+  -- Reply with r
+  vim.keymap.set("n", "r", function()
+    vim.api.nvim_win_close(win, true)
+    M.reply(thread.id)
+  end, { buffer = buf })
+end
+
+function M.reply(thread_id)
+  local review = require("pr.review")
+  if not review.current then
+    vim.notify("No active PR review", vim.log.levels.WARN)
+    return
+  end
+
+  thread_id = thread_id or (M.threads[M.current_index] and M.threads[M.current_index].id)
+  if not thread_id then
+    vim.notify("No thread selected", vim.log.levels.WARN)
+    return
+  end
+
+  vim.ui.input({ prompt = "Reply: " }, function(body)
+    if not body or body == "" then return end
+
+    local github = require("pr.github")
+    local ok, err = github.reply_to_comment(
+      review.current.owner,
+      review.current.repo,
+      review.current.number,
+      thread_id,
+      body
+    )
+
+    if ok then
+      vim.notify("Reply posted", vim.log.levels.INFO)
+      M.load(review.current.owner, review.current.repo, review.current.number)
+    else
+      vim.notify(err or "Failed to post reply", vim.log.levels.ERROR)
+    end
+  end)
+end
+
+return M
