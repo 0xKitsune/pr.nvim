@@ -65,9 +65,9 @@ function M.get_review_status(pr, current_user)
   -- Your review status
   if your_review then
     if your_review == "APPROVED" then
-      table.insert(parts, "(✓ you)")
+      table.insert(parts, "(approved by you)")
     elseif your_review == "CHANGES_REQUESTED" then
-      table.insert(parts, "(✗ you)")
+      table.insert(parts, "(changes requested by you)")
     elseif your_review == "COMMENTED" or your_review == "PENDING" then
       table.insert(parts, "(reviewed by you)")
     end
