@@ -336,7 +336,6 @@ function M.show_help()
     "Enter       Open comment at cursor",
     "q           Close file tab",
     "Q           Close entire review",
-    "",
     "]f / [f     Next/prev file",
     "]c / [c     Next/prev comment",
     "",
@@ -351,7 +350,7 @@ function M.show_help()
   local width = 36
   local height = #help
 
-  local win = vim.api.nvim_open_win(buf, true, {
+  local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
     row = vim.o.lines - height - 6,
     col = vim.o.columns - width - 4,
@@ -361,21 +360,20 @@ function M.show_help()
     border = "rounded",
     title = " ? ",
     title_pos = "center",
+    focusable = false,
   })
 
   vim.wo[win].winhl = "Normal:TelescopePromptNormal,FloatBorder:TelescopePromptBorder"
 
-  vim.keymap.set("n", "<Esc>", function()
-    vim.api.nvim_win_close(win, true)
-  end, { buffer = buf })
+  -- Close help with Esc or ?
+  local function close_help()
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+  end
 
-  vim.keymap.set("n", "q", function()
-    vim.api.nvim_win_close(win, true)
-  end, { buffer = buf })
-
-  vim.keymap.set("n", "?", function()
-    vim.api.nvim_win_close(win, true)
-  end, { buffer = buf })
+  vim.keymap.set("n", "<Esc>", close_help, { buffer = 0 })
+  vim.keymap.set("n", "?", close_help, { buffer = 0 })
 end
 
 function M.submit(event)

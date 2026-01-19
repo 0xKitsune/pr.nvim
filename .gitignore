@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Neovim
+*.swp
+*.swo
+*~
+
+# Tags
+tags
+tags.lock
+tags.temp
+
+# Doc tags
+doc/tags
