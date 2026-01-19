@@ -147,8 +147,8 @@ function M.show_virtual_comment(line, preview)
   local ns = vim.api.nvim_create_namespace("pr_pending_comments")
   pcall(function()
     vim.api.nvim_buf_set_extmark(right_buf, ns, line - 1, 0, {
-      virt_text = { { " 💬 " .. preview .. "...", "Comment" } },
-      virt_text_pos = "eol",
+      sign_text = "💬",
+      sign_hl_group = "Comment",
     })
   end)
 end

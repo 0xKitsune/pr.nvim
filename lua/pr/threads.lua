@@ -58,8 +58,8 @@ function M.show_all_comments()
     if thread.line and thread.path == current_file then
       pcall(function()
         vim.api.nvim_buf_set_extmark(right_buf, ns, thread.line - 1, 0, {
-          virt_text = { { string.format(" 💬 %s: %s", thread.author, thread.body:sub(1, 30)), "Comment" } },
-          virt_text_pos = "eol",
+          sign_text = "💬",
+          sign_hl_group = "Comment",
         })
       end)
     end
