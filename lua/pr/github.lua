@@ -136,8 +136,19 @@ function M.reply_to_comment(owner, repo, pr_number, comment_id, body)
 end
 
 function M.submit_review(owner, repo, pr_number, event, body)
-  local gh_event = event:gsub("_", "-")
-  local cmd = string.format("gh pr review %s --repo %s/%s --%s", pr_number, owner, repo, gh_event)
+  -- gh pr review expects: --approve, --comment, --request-changes
+  local event_flags = {
+    approve = "--approve",
+    comment = "--comment",
+    request_changes = "--request-changes",
+  }
+  
+  local flag = event_flags[event]
+  if not flag then
+    return nil, "Invalid review event: " .. event
+  end
+  
+  local cmd = string.format("gh pr review %s --repo %s/%s %s", pr_number, owner, repo, flag)
 
   if body and body ~= "" then
     cmd = cmd .. string.format(" --body %q", body)
