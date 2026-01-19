@@ -59,12 +59,15 @@ function M.get_review_status(pr, current_user)
     table.insert(parts, "✓ approved")
   elseif decision == "CHANGES_REQUESTED" then
     table.insert(parts, "✗ changes requested")
-  elseif decision == "REVIEW_REQUIRED" then
-    table.insert(parts, "◐ review requested")
   elseif has_any_review then
     table.insert(parts, "● reviewed")
   else
     table.insert(parts, "○")
+  end
+  
+  -- Add review requested indicator
+  if decision == "REVIEW_REQUIRED" then
+    table.insert(parts, "(review requested)")
   end
   
   -- Your review status
