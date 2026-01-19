@@ -6,12 +6,10 @@ M.config = {
     comment = "c",
     suggest = "s",
     reply = "r",
-    approve = "a",
     next_file = "]f",
     prev_file = "[f",
     next_comment = "]c",
     prev_comment = "[c",
-    close = "q",
   },
 }
 

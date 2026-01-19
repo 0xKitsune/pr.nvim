@@ -5,32 +5,35 @@ M.current_index = 0
 
 function M.load(owner, repo, pr_number)
   local github = require("pr.github")
-  local comments, err = github.get_comments(owner, repo, pr_number)
+  
+  github.get_comments(owner, repo, pr_number, function(comments, err)
+    if err then
+      vim.notify(err, vim.log.levels.WARN)
+      return
+    end
 
-  if err then
-    vim.notify(err, vim.log.levels.WARN)
-    return
-  end
+    M.threads = {}
+    for _, comment in ipairs(comments or {}) do
+      table.insert(M.threads, {
+        id = comment.id,
+        path = comment.path,
+        line = comment.line or comment.original_line,
+        body = comment.body,
+        author = comment.user and comment.user.login or "unknown",
+        created_at = comment.created_at,
+        in_reply_to = comment.in_reply_to_id,
+      })
+    end
 
-  M.threads = {}
-  for _, comment in ipairs(comments or {}) do
-    table.insert(M.threads, {
-      id = comment.id,
-      path = comment.path,
-      line = comment.line or comment.original_line,
-      body = comment.body,
-      author = comment.user and comment.user.login or "unknown",
-      created_at = comment.created_at,
-      in_reply_to = comment.in_reply_to_id,
-    })
-  end
+    M.current_index = 0
+    M.file_thread_index = 0
 
-  M.current_index = 0
-  M.show_all_comments()
-
-  if #M.threads > 0 then
-    vim.notify(string.format("Loaded %d comment threads", #M.threads), vim.log.levels.INFO)
-  end
+    if #M.threads > 0 then
+      vim.notify(string.format("Loaded %d comments", #M.threads), vim.log.levels.INFO)
+      -- Try to show comments if buffer exists
+      M.show_all_comments()
+    end
+  end)
 end
 
 function M.show_all_comments()

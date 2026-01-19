@@ -239,8 +239,6 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", config.suggest, function() require("pr.comments").add_suggestion() end, opts)
   vim.keymap.set("v", config.suggest, function() require("pr.comments").add_suggestion() end, opts)
   vim.keymap.set("n", config.reply, function() require("pr.threads").reply() end, opts)
-  vim.keymap.set("n", config.approve, function() M.submit("approve") end, opts)
-  vim.keymap.set("n", "x", function() M.submit("request_changes") end, vim.tbl_extend("force", opts, { desc = "Request changes" }))
   vim.keymap.set("n", "v", function() M.toggle_reviewed() end, vim.tbl_extend("force", opts, { desc = "Toggle reviewed" }))
   vim.keymap.set("n", "S", function() M.submit() end, vim.tbl_extend("force", opts, { desc = "Submit review" }))
   vim.keymap.set("n", "q", function() M.close_file() end, vim.tbl_extend("force", opts, { desc = "Close file" }))
@@ -333,8 +331,6 @@ function M.show_help()
     "r           Reply to thread",
     "Enter       Open comment at cursor",
     "v           Toggle file reviewed",
-    "a           Approve PR",
-    "x           Request changes",
     "S           Submit review",
     "q           Close file tab",
     "Q           Close entire review",
