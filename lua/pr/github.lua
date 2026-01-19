@@ -77,7 +77,7 @@ function M.get_review_status(pr, current_user)
   
   -- Add review requested indicator if you are specifically requested
   if you_requested then
-    table.insert(parts, "(review requested from you)")
+    table.insert(parts, "(review requested)")
   end
   
   -- Your review status
