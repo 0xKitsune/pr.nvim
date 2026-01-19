@@ -86,7 +86,16 @@ function M.open_thread_at_cursor()
   if thread then
     M.show_thread_popup(thread)
   else
-    vim.notify("No comment on this line", vim.log.levels.INFO)
+    local file_threads = M.get_current_file_threads()
+    if #file_threads > 0 then
+      local lines = {}
+      for _, t in ipairs(file_threads) do
+        table.insert(lines, tostring(t.line))
+      end
+      vim.notify("No comment on this line. Comments on lines: " .. table.concat(lines, ", "), vim.log.levels.INFO)
+    else
+      vim.notify("No comments in this file", vim.log.levels.INFO)
+    end
   end
 end
 
