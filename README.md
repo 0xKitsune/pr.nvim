@@ -25,7 +25,9 @@ Review GitHub pull requests directly in Neovim.
 
 ```lua
 {
-  "your-username/pr.nvim",
+  dir = "~/path/to/pr.nvim",  -- local path
+  -- or use your repo:
+  -- "your-username/pr.nvim",
   dependencies = {
     "nvim-telescope/telescope.nvim", -- optional
   },
@@ -33,6 +35,32 @@ Review GitHub pull requests directly in Neovim.
     require("pr").setup()
   end,
 }
+```
+
+### packer.nvim
+
+```lua
+use {
+  "your-username/pr.nvim",
+  requires = { "nvim-telescope/telescope.nvim" },
+  config = function()
+    require("pr").setup()
+  end,
+}
+```
+
+### Manual
+
+Clone the repository and add to your runtimepath:
+
+```bash
+git clone https://github.com/your-username/pr.nvim ~/.local/share/nvim/site/pack/plugins/start/pr.nvim
+```
+
+Then in your config:
+
+```lua
+require("pr").setup()
 ```
 
 ## Usage
@@ -58,17 +86,17 @@ Review GitHub pull requests directly in Neovim.
 | Key | Action |
 |-----|--------|
 | `f` | Open file picker |
-| `]f` / `[f` | Next/prev file |
-| `]c` / `[c` | Next/prev comment in file |
 | `c` | Add comment at cursor |
 | `s` | Add suggestion (with code block) |
 | `r` | Reply to thread |
-| `Enter` | Open comment at cursor |
 | `v` | Toggle file as reviewed |
 | `S` | Submit review (approve/comment/request changes) |
+| `Enter` | Open comment at cursor |
 | `q` | Close current file tab |
 | `Q` | Close entire review |
 | `?` | Show help |
+| `]f` / `[f` | Next/prev file |
+| `]c` / `[c` | Next/prev comment in file |
 
 ### File picker
 
@@ -134,3 +162,7 @@ require("pr").setup({
   },
 })
 ```
+
+## License
+
+MIT
