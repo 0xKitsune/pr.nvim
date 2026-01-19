@@ -200,6 +200,9 @@ end
 function M.jump_to_first_change(highlights)
   if not highlights or #highlights == 0 then return end
   
+  -- Store highlights for n/N navigation
+  M.current_highlights = highlights
+  
   -- Find first added/changed line
   for _, hl in ipairs(highlights) do
     if hl[2] == "DiffAdd" then
@@ -212,6 +215,67 @@ function M.jump_to_first_change(highlights)
   -- Fallback to first highlight
   pcall(vim.api.nvim_win_set_cursor, 0, { highlights[1][1], 0 })
   vim.cmd("normal! zz")
+end
+
+function M.next_change()
+  if not M.current_highlights or #M.current_highlights == 0 then
+    vim.notify("No changes", vim.log.levels.INFO)
+    return
+  end
+  
+  local current_line = vim.api.nvim_win_get_cursor(0)[1]
+  
+  for _, hl in ipairs(M.current_highlights) do
+    if hl[1] > current_line and (hl[2] == "DiffAdd" or hl[2] == "DiffDelete") then
+      pcall(vim.api.nvim_win_set_cursor, 0, { hl[1], 0 })
+      vim.cmd("normal! zz")
+      return
+    end
+  end
+  
+  -- Wrap to first change
+  for _, hl in ipairs(M.current_highlights) do
+    if hl[2] == "DiffAdd" or hl[2] == "DiffDelete" then
+      pcall(vim.api.nvim_win_set_cursor, 0, { hl[1], 0 })
+      vim.cmd("normal! zz")
+      return
+    end
+  end
+end
+
+function M.prev_change()
+  if not M.current_highlights or #M.current_highlights == 0 then
+    vim.notify("No changes", vim.log.levels.INFO)
+    return
+  end
+  
+  local current_line = vim.api.nvim_win_get_cursor(0)[1]
+  local prev_hl = nil
+  
+  for _, hl in ipairs(M.current_highlights) do
+    if hl[1] >= current_line then
+      break
+    end
+    if hl[2] == "DiffAdd" or hl[2] == "DiffDelete" then
+      prev_hl = hl
+    end
+  end
+  
+  if prev_hl then
+    pcall(vim.api.nvim_win_set_cursor, 0, { prev_hl[1], 0 })
+    vim.cmd("normal! zz")
+    return
+  end
+  
+  -- Wrap to last change
+  for i = #M.current_highlights, 1, -1 do
+    local hl = M.current_highlights[i]
+    if hl[2] == "DiffAdd" or hl[2] == "DiffDelete" then
+      pcall(vim.api.nvim_win_set_cursor, 0, { hl[1], 0 })
+      vim.cmd("normal! zz")
+      return
+    end
+  end
 end
 
 function M.apply_highlights(buf, highlights)
@@ -257,6 +321,8 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", "?", function() M.show_help() end, vim.tbl_extend("force", opts, { desc = "Show help" }))
   vim.keymap.set("n", "f", function() require("pr.picker").list_files() end, vim.tbl_extend("force", opts, { desc = "File picker" }))
   vim.keymap.set("n", "<CR>", function() require("pr.threads").open_thread_at_cursor() end, vim.tbl_extend("force", opts, { desc = "Open comment" }))
+  vim.keymap.set("n", "n", function() M.next_change() end, vim.tbl_extend("force", opts, { desc = "Next change" }))
+  vim.keymap.set("n", "N", function() M.prev_change() end, vim.tbl_extend("force", opts, { desc = "Prev change" }))
 end
 
 function M.get_file_index(file)
@@ -343,6 +409,7 @@ function M.show_help()
     "Enter       Open comment at cursor",
     "q           Close file tab",
     "Q           Close entire review",
+    "n / N       Next/prev change",
     "]f / [f     Next/prev file",
     "]c / [c     Next/prev comment",
     "",

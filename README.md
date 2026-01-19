@@ -83,6 +83,7 @@ In review mode:
 | `q` | Close current file tab |
 | `Q` | Close entire review |
 | `?` | Show help |
+| `n` / `N` | Next/prev change |
 | `]f` / `[f` | Next/prev file |
 | `]c` / `[c` | Next/prev comment |
 
