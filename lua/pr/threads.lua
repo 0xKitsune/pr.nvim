@@ -34,14 +34,30 @@ function M.load(owner, repo, pr_number)
 end
 
 function M.show_all_comments()
-  -- Show virtual text for all comments
+  local review = require("pr.review")
+  if not review.current then return end
+  
+  -- Find the HEAD (right) buffer
+  local right_buf = nil
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("PR #%d+ HEAD:") then
+      right_buf = buf
+      break
+    end
+  end
+  
+  if not right_buf then return end
+  
   local ns = vim.api.nvim_create_namespace("pr_threads")
-  vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(right_buf, ns, 0, -1)
 
+  local current_file = review.current.files[review.current.file_index]
+  
   for _, thread in ipairs(M.threads) do
-    if thread.line then
+    if thread.line and thread.path == current_file then
       pcall(function()
-        vim.api.nvim_buf_set_extmark(0, ns, thread.line - 1, 0, {
+        vim.api.nvim_buf_set_extmark(right_buf, ns, thread.line - 1, 0, {
           virt_text = { { string.format(" [%s] %s", thread.author, thread.body:sub(1, 30)), "Comment" } },
           virt_text_pos = "eol",
         })
@@ -50,25 +66,75 @@ function M.show_all_comments()
   end
 end
 
+function M.get_thread_at_cursor()
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  local file_threads = M.get_current_file_threads()
+  
+  for _, thread in ipairs(file_threads) do
+    if thread.line == line then
+      return thread
+    end
+  end
+  return nil
+end
+
+function M.open_thread_at_cursor()
+  local thread = M.get_thread_at_cursor()
+  if thread then
+    M.show_thread_popup(thread)
+  else
+    vim.notify("No comment on this line", vim.log.levels.INFO)
+  end
+end
+
+function M.get_current_file_threads()
+  local review = require("pr.review")
+  if not review.current then return {} end
+  
+  local current_file = review.current.files[review.current.file_index]
+  if not current_file then return M.threads end
+  
+  local file_threads = {}
+  for _, thread in ipairs(M.threads) do
+    if thread.path == current_file then
+      table.insert(file_threads, thread)
+    end
+  end
+  return file_threads
+end
+
 function M.next()
-  if #M.threads == 0 then
-    vim.notify("No comment threads", vim.log.levels.INFO)
+  local file_threads = M.get_current_file_threads()
+  if #file_threads == 0 then
+    vim.notify("No comments in this file", vim.log.levels.INFO)
     return
   end
-  M.current_index = (M.current_index % #M.threads) + 1
-  M.goto_thread(M.current_index)
+  
+  M.file_thread_index = ((M.file_thread_index or 0) % #file_threads) + 1
+  local thread = file_threads[M.file_thread_index]
+  M.jump_to_line(thread.line)
+  M.show_thread_popup(thread)
 end
 
 function M.prev()
-  if #M.threads == 0 then
-    vim.notify("No comment threads", vim.log.levels.INFO)
+  local file_threads = M.get_current_file_threads()
+  if #file_threads == 0 then
+    vim.notify("No comments in this file", vim.log.levels.INFO)
     return
   end
-  M.current_index = M.current_index - 1
-  if M.current_index < 1 then
-    M.current_index = #M.threads
+  
+  M.file_thread_index = (M.file_thread_index or 1) - 1
+  if M.file_thread_index < 1 then
+    M.file_thread_index = #file_threads
   end
-  M.goto_thread(M.current_index)
+  local thread = file_threads[M.file_thread_index]
+  M.jump_to_line(thread.line)
+  M.show_thread_popup(thread)
+end
+
+function M.jump_to_line(line)
+  if not line then return end
+  pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
 end
 
 function M.goto_thread(index)

@@ -167,8 +167,31 @@ function M.show_side_by_side(file, diff)
   M.setup_keymaps(left_buf)
   M.setup_keymaps(right_buf)
 
+  -- Jump to first change
+  M.jump_to_first_change(right_hl)
+
+  -- Show comments on the right side
+  require("pr.threads").show_all_comments()
+
   -- Update statusline
   M.update_statusline()
+end
+
+function M.jump_to_first_change(highlights)
+  if not highlights or #highlights == 0 then return end
+  
+  -- Find first added/changed line
+  for _, hl in ipairs(highlights) do
+    if hl[2] == "DiffAdd" then
+      pcall(vim.api.nvim_win_set_cursor, 0, { hl[1], 0 })
+      vim.cmd("normal! zz")
+      return
+    end
+  end
+  
+  -- Fallback to first highlight
+  pcall(vim.api.nvim_win_set_cursor, 0, { highlights[1][1], 0 })
+  vim.cmd("normal! zz")
 end
 
 function M.apply_highlights(buf, highlights)
@@ -213,6 +236,7 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", "Q", function() M.close() end, vim.tbl_extend("force", opts, { desc = "Close review" }))
   vim.keymap.set("n", "?", function() M.show_help() end, vim.tbl_extend("force", opts, { desc = "Show help" }))
   vim.keymap.set("n", "f", function() require("pr.picker").list_files() end, vim.tbl_extend("force", opts, { desc = "File picker" }))
+  vim.keymap.set("n", "<CR>", function() require("pr.threads").open_thread_at_cursor() end, vim.tbl_extend("force", opts, { desc = "Open comment" }))
 end
 
 function M.get_file_index(file)
@@ -296,6 +320,7 @@ function M.show_help()
     "c         Add comment",
     "s         Add suggestion",
     "r         Reply to thread",
+    "<CR>      Open comment at cursor",
     "v         Toggle file reviewed",
     "a         Approve PR",
     "S         Submit review",
