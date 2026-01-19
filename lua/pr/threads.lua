@@ -62,8 +62,8 @@ function M.show_all_comments()
     if thread.line then
       pcall(function()
         vim.api.nvim_buf_set_extmark(right_buf, ns, thread.line - 1, 0, {
-          sign_text = thread.pending and "📝" or "💬",
-          sign_hl_group = "Comment",
+          sign_text = "💬",
+          sign_hl_group = thread.pending and "DiagnosticWarn" or "DiagnosticInfo",
         })
       end)
     end
@@ -191,23 +191,35 @@ function M.goto_thread_by_id(id)
 end
 
 function M.show_thread_popup(thread)
+  local status = thread.pending and " (pending)" or ""
+  local timestamp = ""
+  if thread.created_at then
+    timestamp = " • " .. thread.created_at:sub(1, 10)
+  end
+  
   local lines = {
-    string.format("%s:%d", thread.path or "?", thread.line or 0),
-    string.format("@%s", thread.author),
-    "",
+    "┌─ Comment ─────────────────────────────",
+    "│",
+    string.format("│  @%s%s%s", thread.author, status, timestamp),
+    string.format("│  %s:%d", thread.path or "?", thread.line or 0),
+    "│",
+    "├────────────────────────────────────────",
   }
 
-  for _, line in ipairs(vim.split(thread.body, "\n")) do
-    table.insert(lines, line)
+  for _, line in ipairs(vim.split(thread.body or "", "\n")) do
+    table.insert(lines, "│  " .. line)
   end
+  
+  table.insert(lines, "│")
+  table.insert(lines, "└────────────────────────────────────────")
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].filetype = "markdown"
 
-  local width = math.min(60, vim.o.columns - 10)
-  local height = math.min(#lines + 2, 15)
+  local width = math.max(44, math.min(60, vim.o.columns - 10))
+  local height = math.min(#lines, 20)
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "cursor",
@@ -216,9 +228,7 @@ function M.show_thread_popup(thread)
     width = width,
     height = height,
     style = "minimal",
-    border = "rounded",
-    title = " Comment Thread ",
-    title_pos = "center",
+    border = "none",
   })
 
   -- Close on q or Esc
