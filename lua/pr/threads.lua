@@ -198,28 +198,25 @@ function M.show_thread_popup(thread)
   end
   
   local lines = {
-    "┌─ Comment ─────────────────────────────",
-    "│",
-    string.format("│  @%s%s%s", thread.author, status, timestamp),
-    string.format("│  %s:%d", thread.path or "?", thread.line or 0),
-    "│",
-    "├────────────────────────────────────────",
+    "── Comment ──────────────────────────────",
+    string.format("Author: @%s%s%s", thread.author, status, timestamp),
+    string.format("File: %s", thread.path or "?"),
+    string.format("Line: %d", thread.line or 0),
+    "─────────────────────────────────────────",
+    "",
   }
 
   for _, line in ipairs(vim.split(thread.body or "", "\n")) do
-    table.insert(lines, "│  " .. line)
+    table.insert(lines, line)
   end
-  
-  table.insert(lines, "│")
-  table.insert(lines, "└────────────────────────────────────────")
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].filetype = "markdown"
 
-  local width = math.max(44, math.min(60, vim.o.columns - 10))
-  local height = math.min(#lines, 20)
+  local width = math.floor(vim.o.columns * 0.5)
+  local height = math.min(#lines + 2, 20)
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "cursor",
@@ -228,7 +225,9 @@ function M.show_thread_popup(thread)
     width = width,
     height = height,
     style = "minimal",
-    border = "none",
+    border = "rounded",
+    title = " r: reply | Esc: close ",
+    title_pos = "center",
   })
 
   -- Close on q or Esc
