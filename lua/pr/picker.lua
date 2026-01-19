@@ -265,6 +265,7 @@ function M._telescope_files(files, current)
 
       map("i", "<C-v>", toggle_reviewed)
       map("n", "<C-v>", toggle_reviewed)
+      map("n", "v", toggle_reviewed)
 
       return true
     end,
