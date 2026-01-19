@@ -17,7 +17,7 @@ end
 
 function M.list_prs(filter, callback)
   filter = filter or ""
-  local cmd = string.format("gh pr list --json number,title,author,headRefName,state,reviewDecision,reviews %s", filter)
+  local cmd = string.format("gh pr list --limit 100 --json number,title,author,headRefName,state,reviewDecision,reviews %s", filter)
   
   async.run_json(cmd, function(prs, err)
     if err then
