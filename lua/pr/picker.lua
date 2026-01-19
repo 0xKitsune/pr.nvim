@@ -64,17 +64,52 @@ function M.list_prs(opts)
 end
 
 function M._pr_entry_maker(pr)
-  local status = pr.review_status or ""
-  local display = string.format("#%-5d   %-40s   @%-12s   %s", 
+  local status = pr.review_status or {}
+  
+  local icon = status.icon or "○"
+  local main = status.main or ""
+  local you = status.you or ""
+  
+  -- Build full status like: "✓ approved, you approved"
+  local full_status = icon
+  if main ~= "" then
+    full_status = full_status .. " " .. main
+  end
+  if you ~= "" then
+    if main ~= "" then
+      full_status = full_status .. ", " .. you
+    else
+      full_status = full_status .. " " .. you
+    end
+  end
+  
+  -- Build display line
+  local prefix = string.format("#%-5d   %-40s   @%-10s   ", 
     pr.number, 
     pr.title:sub(1, 40), 
-    pr.author.login:sub(1, 12),
-    status
+    pr.author.login:sub(1, 10)
   )
+  local display = prefix .. full_status
+  
+  -- Build highlights
+  local num_str = "#" .. pr.number
+  local highlights = {
+    { { 0, #num_str }, "TelescopeResultsNumber" },
+  }
+  
+  if you ~= "" then
+    local you_start = display:find(you, 1, true)
+    if you_start then
+      table.insert(highlights, { { you_start - 1, you_start - 1 + #you }, "DiagnosticInfo" })
+    end
+  end
+  
   return {
     value = pr,
-    display = display,
-    ordinal = pr.title .. " " .. pr.author.login .. " " .. pr.number .. " " .. status,
+    display = function()
+      return display, highlights
+    end,
+    ordinal = pr.title .. " " .. pr.author.login .. " " .. pr.number .. " " .. full_status,
   }
 end
 
@@ -99,24 +134,66 @@ function M._telescope_prs(prs)
   local action_state = require("telescope.actions.state")
   local themes = require("telescope.themes")
 
-  local opts = themes.get_dropdown({
-    layout_config = {
-      width = 0.7,
-      height = 0.6,
-    },
-    previewer = false,
+  local previewers = require("telescope.previewers")
+
+  local pr_previewer = previewers.new_buffer_previewer({
+    title = "Description",
+    define_preview = function(self, entry)
+      local pr = entry.value
+      local lines = {
+        "# " .. pr.title,
+        "",
+        "**Author:** @" .. pr.author.login,
+        "**PR:** #" .. pr.number,
+        "",
+      }
+      
+      -- Fetch full PR details for description
+      local github = require("pr.github")
+      local owner, repo = github.get_repo_info()
+      if owner and repo then
+        local cmd = string.format("gh pr view %d --repo %s/%s --json body --jq .body", pr.number, owner, repo)
+        vim.fn.jobstart(cmd, {
+          stdout_buffered = true,
+          on_stdout = function(_, data)
+            if data and data[1] and data[1] ~= "" then
+              vim.schedule(function()
+                if vim.api.nvim_buf_is_valid(self.state.bufnr) then
+                  local desc_lines = vim.split(table.concat(data, "\n"), "\n")
+                  for _, line in ipairs(desc_lines) do
+                    table.insert(lines, line)
+                  end
+                  vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+                  vim.bo[self.state.bufnr].filetype = "markdown"
+                end
+              end)
+            end
+          end,
+        })
+      end
+      
+      vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+      vim.bo[self.state.bufnr].filetype = "markdown"
+    end,
   })
 
-  opts.sorting_strategy = "ascending"
-  opts.layout_config.prompt_position = "top"
-
-  local picker = pickers.new(opts, {
+  local picker = pickers.new({
+    layout_strategy = "horizontal",
+    layout_config = {
+      width = 0.9,
+      height = 0.8,
+      preview_width = 0.4,
+      prompt_position = "top",
+    },
+    sorting_strategy = "ascending",
+  }, {
     prompt_title = "Pull Requests",
     finder = finders.new_table({
       results = prs,
       entry_maker = M._pr_entry_maker,
     }),
     sorter = conf.generic_sorter({}),
+    previewer = pr_previewer,
     attach_mappings = function(prompt_bufnr, _)
       actions.select_default:replace(function()
         actions.close(prompt_bufnr)

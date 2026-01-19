@@ -176,43 +176,39 @@ function M.get_review_status(pr, current_user)
     status_text = "approved"
   elseif decision == "CHANGES_REQUESTED" then
     icon = "✗"
-    status_text = "changes requested"
+    status_text = "changes req"
   elseif has_any_review then
     icon = "●"
   else
     icon = "○"
   end
   
-  -- Build status parts (joined by comma)
-  local status_parts = {}
+  -- Build main status (not highlighted)
+  local main_parts = {}
   if status_text ~= "" then
-    table.insert(status_parts, status_text)
-  end
-  if you_requested then
-    table.insert(status_parts, "review requested")
+    table.insert(main_parts, status_text)
   end
   
-  -- Your review status (in parentheses)
-  local your_part = ""
+  -- Build "for you" parts (will be highlighted)
+  local you_parts = {}
+  if you_requested then
+    table.insert(you_parts, "review req")
+  end
   if your_review then
     if your_review == "APPROVED" then
-      your_part = "(approved by you)"
+      table.insert(you_parts, "you approved")
     elseif your_review == "CHANGES_REQUESTED" then
-      your_part = "(changes requested by you)"
+      table.insert(you_parts, "you req changes")
     elseif your_review == "COMMENTED" or your_review == "PENDING" then
-      your_part = "(reviewed by you)"
+      table.insert(you_parts, "you reviewed")
     end
   end
   
-  local result = icon
-  if #status_parts > 0 then
-    result = result .. " " .. table.concat(status_parts, ", ")
-  end
-  if your_part ~= "" then
-    result = result .. " " .. your_part
-  end
-  
-  return result
+  return {
+    icon = icon,
+    main = table.concat(main_parts, ", "),
+    you = table.concat(you_parts, ", "),
+  }
 end
 
 function M.get_pr(owner, repo, pr_number, callback)

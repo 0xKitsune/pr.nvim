@@ -320,6 +320,7 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", "Q", function() M.close() end, vim.tbl_extend("force", opts, { desc = "Close review" }))
   vim.keymap.set("n", "?", function() M.show_help() end, vim.tbl_extend("force", opts, { desc = "Show help" }))
   vim.keymap.set("n", "f", function() require("pr.picker").list_files() end, vim.tbl_extend("force", opts, { desc = "File picker" }))
+  vim.keymap.set("n", "p", function() M.show_pr_info() end, vim.tbl_extend("force", opts, { desc = "PR info" }))
   vim.keymap.set("n", "<CR>", function() require("pr.threads").open_thread_at_cursor() end, vim.tbl_extend("force", opts, { desc = "Open comment" }))
   vim.keymap.set("n", "n", function() M.next_change() end, vim.tbl_extend("force", opts, { desc = "Next change" }))
   vim.keymap.set("n", "N", function() M.prev_change() end, vim.tbl_extend("force", opts, { desc = "Prev change" }))
@@ -401,6 +402,7 @@ function M.show_help()
     "──────────────────────────────",
     "",
     "f           File picker",
+    "p           PR info/description",
     "c           Add comment",
     "s           Add suggestion",
     "r           Reply to thread",
@@ -450,7 +452,71 @@ function M.show_help()
   vim.keymap.set("n", "?", close_help, { buffer = 0 })
 end
 
-function M.submit(event)
+function M.show_pr_info()
+  if not M.current then
+    vim.notify("No active PR review", vim.log.levels.WARN)
+    return
+  end
+
+  local pr = M.current.pr
+  local lines = {
+    "# " .. (pr.title or "PR #" .. M.current.number),
+    "",
+    "**Author:** @" .. (pr.author and pr.author.login or "unknown"),
+    "**Branch:** " .. (pr.headRefName or "?") .. " → " .. (pr.baseRefName or "?"),
+    "**Files:** " .. #M.current.files,
+    "",
+    "---",
+    "",
+  }
+
+  -- Add body/description (clean up carriage returns)
+  if pr.body and pr.body ~= "" then
+    local clean_body = pr.body:gsub("\r\n", "\n"):gsub("\r", "\n")
+    for _, line in ipairs(vim.split(clean_body, "\n")) do
+      table.insert(lines, line)
+    end
+  else
+    table.insert(lines, "_No description provided._")
+  end
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].filetype = "markdown"
+  vim.bo[buf].modifiable = false
+
+  local width = math.min(80, vim.o.columns - 10)
+  local height = math.min(#lines + 2, vim.o.lines - 10)
+
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
+    width = width,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+    title = " PR #" .. M.current.number .. " ",
+    title_pos = "center",
+    focusable = false,
+  })
+
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+
+  -- Close with p or Esc (from original buffer)
+  local function close_info()
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+  end
+
+  vim.keymap.set("n", "p", close_info, { buffer = 0 })
+  vim.keymap.set("n", "<Esc>", close_info, { buffer = 0 })
+end
+
+function M.submit(event, body)
   if not M.current then
     vim.notify("No active PR review", vim.log.levels.WARN)
     return
@@ -459,7 +525,10 @@ function M.submit(event)
   if not event or not vim.tbl_contains({ "approve", "comment", "request_changes" }, event) then
     vim.ui.select({ "approve", "comment", "request_changes" }, { prompt = "Submit review as:" }, function(choice)
       if choice then
-        M.submit(choice)
+        -- Prompt for optional comment
+        vim.ui.input({ prompt = "Comment (optional): " }, function(input)
+          M.submit(choice, input)
+        end)
       end
     end)
     return
@@ -474,7 +543,7 @@ function M.submit(event)
     end
   end
 
-  local ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event)
+  local ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
   if ok then
     vim.notify("Review submitted: " .. event, vim.log.levels.INFO)
     

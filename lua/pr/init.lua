@@ -21,6 +21,16 @@ function M.setup(opts)
   vim.defer_fn(function()
     require("pr.github").prefetch()
   end, 100)
+  
+  -- Save review state when Neovim exits
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    callback = function()
+      local review = require("pr.review")
+      if review.current then
+        require("pr.cache").save_review(review.current)
+      end
+    end,
+  })
 end
 
 return M

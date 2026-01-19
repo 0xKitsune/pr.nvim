@@ -74,6 +74,7 @@ In review mode:
 | Key | Action |
 |-----|--------|
 | `f` | Open file picker |
+| `p` | Show PR info/description |
 | `c` | Add comment at cursor |
 | `s` | Add suggestion (with code block) |
 | `r` | Reply to thread |
