@@ -1,8 +1,8 @@
 # pr.nvim
 
-A Neovim plugin for reviewing GitHub pull requests without leaving your editor. View side-by-side diffs, add comments and code suggestions, navigate through existing comment threads, and submit reviews—all from within Neovim.
+A Neovim plugin for reviewing GitHub pull requests without leaving your editor. View side-by-side diffs, add comments and code suggestions, navigate through existing comment threads, and submit reviews all from within Neovim.
 
-The plugin integrates with Telescope for file and PR picking, persists your review progress across sessions, and uses async loading to keep the UI responsive. Comments you add are stored locally until you submit your review, so you can close Neovim and pick up where you left off.
+The plugin integrates with Telescope for file and PR picking, persists your review progress across sessions and uses async loading to keep the UI responsive. Comments you add are stored locally until you submit your review, so you can close Neovim and pick up where you left off.
 
 ## Requirements
 
@@ -118,7 +118,3 @@ require("pr").setup({
   },
 })
 ```
-
-## License
-
-MIT
