@@ -9,23 +9,26 @@ function M.list_prs(opts)
     filter = "--author " .. opts.author
   end
 
-  local prs, err = github.list_prs(filter)
-  if err then
-    vim.notify(err, vim.log.levels.ERROR)
-    return
-  end
+  vim.notify("Loading PRs...", vim.log.levels.INFO)
 
-  if not prs or #prs == 0 then
-    vim.notify("No open PRs found", vim.log.levels.INFO)
-    return
-  end
+  github.list_prs(filter, function(prs, err)
+    if err then
+      vim.notify(err, vim.log.levels.ERROR)
+      return
+    end
 
-  local ok, _ = pcall(require, "telescope.pickers")
-  if ok then
-    M._telescope_prs(prs)
-  else
-    M._select_prs(prs)
-  end
+    if not prs or #prs == 0 then
+      vim.notify("No open PRs found", vim.log.levels.INFO)
+      return
+    end
+
+    local ok, _ = pcall(require, "telescope.pickers")
+    if ok then
+      M._telescope_prs(prs)
+    else
+      M._select_prs(prs)
+    end
+  end)
 end
 
 function M._select_prs(prs)

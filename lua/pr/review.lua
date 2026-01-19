@@ -4,6 +4,7 @@ M.current = nil
 
 function M.open(pr_number, owner, repo)
   local github = require("pr.github")
+  local cache = require("pr.cache")
 
   if not owner or not repo then
     owner, repo = github.get_repo_info()
@@ -16,27 +17,36 @@ function M.open(pr_number, owner, repo)
 
   vim.notify(string.format("Loading PR #%d...", pr_number), vim.log.levels.INFO)
 
-  local pr, err = github.get_pr(owner, repo, pr_number)
-  if err then
-    vim.notify(err, vim.log.levels.ERROR)
-    return
-  end
+  github.get_pr(owner, repo, pr_number, function(pr, err)
+    if err then
+      vim.notify(err, vim.log.levels.ERROR)
+      return
+    end
 
-  M.current = {
-    number = pr_number,
-    owner = owner,
-    repo = repo,
-    pr = pr,
-    files = pr.files or {},
-    file_index = 0,
-    reviewed = {},
-    pending_comments = {},
-  }
+    -- Restore saved review state if available
+    local saved = cache.load_review(owner, repo, pr_number)
 
-  require("pr.threads").load(owner, repo, pr_number)
+    M.current = {
+      number = pr_number,
+      owner = owner,
+      repo = repo,
+      pr = pr,
+      files = pr.files or {},
+      file_index = saved and saved.file_index or 0,
+      reviewed = saved and saved.reviewed or {},
+      pending_comments = saved and saved.pending_comments or {},
+    }
 
-  -- Open file picker immediately
-  require("pr.picker").list_files()
+    -- Pre-fetch diff in background
+    github.get_diff(owner, repo, pr_number, function(_)
+      -- Diff cached
+    end)
+
+    require("pr.threads").load(owner, repo, pr_number)
+
+    -- Open file picker immediately
+    require("pr.picker").list_files()
+  end)
 end
 
 function M.open_file(file)
@@ -468,10 +478,15 @@ function M.close_file()
 end
 
 function M.close()
+  -- Save review state before closing
+  if M.current then
+    require("pr.cache").save_review(M.current)
+  end
+  
   M.close_buffers()
   M.current = nil
   pcall(vim.cmd, "tabclose")
-  vim.notify("PR review closed", vim.log.levels.INFO)
+  vim.notify("PR review closed (state saved)", vim.log.levels.INFO)
 end
 
 return M

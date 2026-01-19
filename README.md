@@ -5,16 +5,18 @@ Review GitHub pull requests directly in Neovim.
 ## Features
 
 - Browse and open PRs from any repo
-- Add comments on specific lines
-- Add code suggestions
+- Side-by-side diff view with syntax highlighting
+- Add comments and code suggestions
 - Navigate and reply to comment threads
-- Submit reviews and approve, comment or request changes
-- Telescope integration
+- Submit reviews (approve, comment, request changes)
+- Telescope integration with diff preview
+- Persistent review state (close and resume later)
+- Async loading for fast performance
 
 ## Requirements
 
 - Neovim >= 0.9
-- [gh CLI](https://cli.github.com/)
+- [gh CLI](https://cli.github.com/) (authenticated)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (optional, for pickers)
 
 ## Installation
@@ -55,16 +57,17 @@ Review GitHub pull requests directly in Neovim.
 
 | Key | Action |
 |-----|--------|
-| `f` | File picker |
+| `f` | Open file picker |
 | `]f` / `[f` | Next/prev file |
-| `]c` / `[c` | Next/prev comment |
-| `c` | Add comment |
-| `s` | Add suggestion |
+| `]c` / `[c` | Next/prev comment in file |
+| `c` | Add comment at cursor |
+| `s` | Add suggestion (with code block) |
 | `r` | Reply to thread |
+| `Enter` | Open comment at cursor |
 | `v` | Toggle file as reviewed |
 | `a` | Approve PR |
-| `S` | Submit review |
-| `q` | Close file tab |
+| `S` | Submit review (choose type) |
+| `q` | Close current file tab |
 | `Q` | Close entire review |
 | `?` | Show help |
 
@@ -72,14 +75,52 @@ Review GitHub pull requests directly in Neovim.
 
 | Key | Action |
 |-----|--------|
-| `<CR>` | Open file diff |
-| `<C-v>` | Toggle reviewed status |
+| `Enter` | Open file diff |
+| `Ctrl+v` | Toggle reviewed status |
+
+### Comment window
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Submit comment |
+| `Esc` | Cancel |
 
 ## Workflow
 
 1. `:PR` to open the PR picker
-2. Select a PR to open file picker
+2. Select a PR to open file picker (with diff preview)
 3. Select a file to view side-by-side diff
-4. Navigate with `]f`/`[f` (files) and `]c`/`[c` (comments)
-5. Press `c` to comment, `s` to suggest changes
-6. `S` to submit your review
+4. Auto-jumps to first change in file
+5. Navigate with `]f`/`[f` (files) and `]c`/`[c` (comments)
+6. Press `c` to comment, `s` to suggest changes
+7. Mark files reviewed with `v`
+8. `S` to submit your review
+9. `Q` to close (state is saved automatically)
+
+## Persistence
+
+Your review progress is automatically saved when you close:
+- Which files you've marked as reviewed
+- Pending comments not yet submitted
+- Current file position
+
+Resume anytime by opening the same PR again.
+
+## Configuration
+
+```lua
+require("pr").setup({
+  provider = "github",  -- only github supported currently
+  keymaps = {
+    comment = "c",
+    suggest = "s",
+    reply = "r",
+    approve = "a",
+    next_file = "]f",
+    prev_file = "[f",
+    next_comment = "]c",
+    prev_comment = "[c",
+    close = "q",
+  },
+})
+```
