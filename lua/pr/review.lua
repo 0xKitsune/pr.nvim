@@ -451,6 +451,9 @@ end
 function M.close_file()
   if not M.current then return end
   
+  -- Save state
+  require("pr.cache").save_review(M.current)
+  
   -- Delete the current PR buffers in this tab
   local current_tab = vim.api.nvim_get_current_tabpage()
   local wins = vim.api.nvim_tabpage_list_wins(current_tab)
@@ -487,7 +490,7 @@ function M.close()
   M.close_buffers()
   M.current = nil
   pcall(vim.cmd, "tabclose")
-  vim.notify("PR review closed (state saved)", vim.log.levels.INFO)
+  vim.notify("PR review closed", vim.log.levels.INFO)
 end
 
 return M
