@@ -1,17 +1,8 @@
 # pr.nvim
 
-Review GitHub pull requests directly in Neovim.
+A Neovim plugin for reviewing GitHub pull requests without leaving your editor. View side-by-side diffs, add comments and code suggestions, navigate through existing comment threads, and submit reviews—all from within Neovim.
 
-## Features
-
-- Browse and open PRs from any repo
-- Side-by-side diff view with syntax highlighting
-- Add comments and code suggestions
-- Navigate and reply to comment threads
-- Submit reviews (approve, comment, request changes)
-- Telescope integration with diff preview
-- Persistent review state (close and resume later)
-- Async loading for fast performance
+The plugin integrates with Telescope for file and PR picking, persists your review progress across sessions, and uses async loading to keep the UI responsive. Comments you add are stored locally until you submit your review, so you can close Neovim and pick up where you left off.
 
 ## Requirements
 
@@ -26,6 +17,8 @@ Review GitHub pull requests directly in Neovim.
 ```lua
 {
   dir = "~/path/to/pr.nvim",  -- local path
+  -- or use your repo:
+  -- "your-username/pr.nvim",
   dependencies = {
     "nvim-telescope/telescope.nvim", -- optional
   },
@@ -71,15 +64,12 @@ require("pr").setup()
 | `:PR 123` | Open PR #123 in current repo |
 | `:PR owner/repo#123` | Open PR from any repo |
 | `:PR @username` | List PRs by user |
-| `:PR comment` | Add comment at cursor |
-| `:PR suggest` | Add code suggestion |
-| `:PR reply` | Reply to current thread |
-| `:PR threads` | List all comment threads |
 | `:PR submit` | Submit review |
-| `:PR files` | List changed files |
 | `:PR close` | Exit review mode |
 
-### Keybindings (in review mode)
+### Keybindings
+
+In review mode:
 
 | Key | Action |
 |-----|--------|
@@ -88,35 +78,17 @@ require("pr").setup()
 | `s` | Add suggestion (with code block) |
 | `r` | Reply to thread |
 | `v` | Toggle file as reviewed |
-| `S` | Submit review (approve/comment/request changes) |
+| `S` | Submit review |
 | `Enter` | Open comment at cursor |
 | `q` | Close current file tab |
 | `Q` | Close entire review |
 | `?` | Show help |
 | `]f` / `[f` | Next/prev file |
-| `]c` / `[c` | Next/prev comment in file |
+| `]c` / `[c` | Next/prev comment |
 
-### File picker
+In file picker: `Ctrl+v` toggles reviewed status.
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Open file diff |
-| `Ctrl+v` | Toggle reviewed status |
-
-### Comment/thread popup
-
-| Key | Action |
-|-----|--------|
-| `r` | Reply to thread |
-| `d` | Delete pending comment (pending only) |
-| `Esc` / `q` | Close popup |
-
-### Comment input
-
-| Key | Action |
-|-----|--------|
-| `Enter` | Submit comment |
-| `Esc` | Cancel |
+In comment popup: `r` to reply, `d` to delete pending comments, `Esc` to close.
 
 ## Workflow
 
@@ -130,26 +102,11 @@ require("pr").setup()
 8. `S` to submit your review
 9. `Q` to close (state is saved automatically)
 
-## Comment indicators
-
-- 💬 (blue) - Existing comment from GitHub
-- 💬 (yellow) - Pending comments
-
-## Persistence
-
-Your review progress is automatically saved when you close:
-
-- Which files you have marked as reviewed
-- Pending comments not yet submitted
-- Current file position
-
-Resume anytime by opening the same PR again.
-
 ## Configuration
 
 ```lua
 require("pr").setup({
-  provider = "github",
+  provider = "github",  -- only github supported currently
   keymaps = {
     comment = "c",
     suggest = "s",
@@ -161,3 +118,7 @@ require("pr").setup({
   },
 })
 ```
+
+## License
+
+MIT
