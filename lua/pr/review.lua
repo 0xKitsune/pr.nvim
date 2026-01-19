@@ -37,8 +37,14 @@ function M.open(pr_number, owner, repo)
       pending_comments = saved and saved.pending_comments or {},
     }
 
-    if saved and #(saved.pending_comments or {}) > 0 then
-      vim.notify(string.format("Restored %d pending comments", #saved.pending_comments), vim.log.levels.INFO)
+    if saved then
+      local pending_count = #(saved.pending_comments or {})
+      local reviewed_count = 0
+      for _ in pairs(saved.reviewed or {}) do reviewed_count = reviewed_count + 1 end
+      
+      if pending_count > 0 or reviewed_count > 0 then
+        vim.notify(string.format("Restored: %d reviewed, %d pending", reviewed_count, pending_count), vim.log.levels.INFO)
+      end
     end
 
     -- Pre-fetch diff in background
@@ -403,7 +409,11 @@ function M.submit(event)
   local ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event)
   if ok then
     vim.notify("Review submitted: " .. event, vim.log.levels.INFO)
+    
+    -- Clear saved state after successful submit
+    require("pr.cache").clear_review(M.current.owner, M.current.repo, M.current.number)
     M.current.pending_comments = {}
+    M.current.reviewed = {}
   else
     vim.notify("Failed to submit: " .. (err or ""), vim.log.levels.ERROR)
   end
