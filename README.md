@@ -4,6 +4,8 @@ A Neovim plugin for reviewing GitHub pull requests without leaving your editor. 
 
 The plugin integrates with Telescope for file and PR picking, persists your review progress across sessions and uses async loading to keep the UI responsive. Comments you add are stored locally until you submit your review, so you can close Neovim and pick up where you left off.
 
+![demo](assets/demo.gif)
+
 ## Requirements
 
 - Neovim >= 0.9
