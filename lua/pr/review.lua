@@ -193,8 +193,49 @@ function M.show_side_by_side(file, diff)
   -- Show comments on the right side
   require("pr.threads").show_all_comments()
 
+  -- Show file path indicator
+  M.show_file_path(file)
+
   -- Update statusline
   M.update_statusline()
+end
+
+function M.show_file_path(file)
+  -- Close existing file path window
+  M.close_file_path_win()
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  local text = " " .. file .. " "
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { text })
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].modifiable = false
+
+  local width = #text
+  M.file_path_win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    row = 0,
+    col = 0,
+    width = width,
+    height = 1,
+    style = "minimal",
+    border = "rounded",
+    focusable = false,
+    zindex = 100,
+  })
+
+  vim.wo[M.file_path_win].winhl = "Normal:TelescopePromptNormal,FloatBorder:TelescopePromptBorder"
+  M.file_path_buf = buf
+end
+
+function M.close_file_path_win()
+  if M.file_path_win and vim.api.nvim_win_is_valid(M.file_path_win) then
+    vim.api.nvim_win_close(M.file_path_win, true)
+  end
+  if M.file_path_buf and vim.api.nvim_buf_is_valid(M.file_path_buf) then
+    vim.api.nvim_buf_delete(M.file_path_buf, { force = true })
+  end
+  M.file_path_win = nil
+  M.file_path_buf = nil
 end
 
 function M.jump_to_first_change(highlights)
@@ -217,65 +258,82 @@ function M.jump_to_first_change(highlights)
   vim.cmd("normal! zz")
 end
 
-function M.next_change()
+function M.get_change_blocks()
   if not M.current_highlights or #M.current_highlights == 0 then
+    return {}
+  end
+
+  local blocks = {}
+  local block_start = nil
+  local prev_line = nil
+
+  for _, hl in ipairs(M.current_highlights) do
+    if hl[2] == "DiffAdd" or hl[2] == "DiffDelete" then
+      if not block_start then
+        block_start = hl[1]
+      elseif hl[1] > prev_line + 1 then
+        table.insert(blocks, block_start)
+        block_start = hl[1]
+      end
+      prev_line = hl[1]
+    end
+  end
+
+  if block_start then
+    table.insert(blocks, block_start)
+  end
+
+  return blocks
+end
+
+function M.next_change()
+  local blocks = M.get_change_blocks()
+  if #blocks == 0 then
     vim.notify("No changes", vim.log.levels.INFO)
     return
   end
-  
+
   local current_line = vim.api.nvim_win_get_cursor(0)[1]
-  
-  for _, hl in ipairs(M.current_highlights) do
-    if hl[1] > current_line and (hl[2] == "DiffAdd" or hl[2] == "DiffDelete") then
-      pcall(vim.api.nvim_win_set_cursor, 0, { hl[1], 0 })
+
+  for _, block_line in ipairs(blocks) do
+    if block_line > current_line then
+      pcall(vim.api.nvim_win_set_cursor, 0, { block_line, 0 })
       vim.cmd("normal! zz")
       return
     end
   end
-  
-  -- Wrap to first change
-  for _, hl in ipairs(M.current_highlights) do
-    if hl[2] == "DiffAdd" or hl[2] == "DiffDelete" then
-      pcall(vim.api.nvim_win_set_cursor, 0, { hl[1], 0 })
-      vim.cmd("normal! zz")
-      return
-    end
-  end
+
+  -- Wrap to first block
+  pcall(vim.api.nvim_win_set_cursor, 0, { blocks[1], 0 })
+  vim.cmd("normal! zz")
 end
 
 function M.prev_change()
-  if not M.current_highlights or #M.current_highlights == 0 then
+  local blocks = M.get_change_blocks()
+  if #blocks == 0 then
     vim.notify("No changes", vim.log.levels.INFO)
     return
   end
-  
+
   local current_line = vim.api.nvim_win_get_cursor(0)[1]
-  local prev_hl = nil
-  
-  for _, hl in ipairs(M.current_highlights) do
-    if hl[1] >= current_line then
+  local prev_block = nil
+
+  for _, block_line in ipairs(blocks) do
+    if block_line >= current_line then
       break
     end
-    if hl[2] == "DiffAdd" or hl[2] == "DiffDelete" then
-      prev_hl = hl
-    end
+    prev_block = block_line
   end
-  
-  if prev_hl then
-    pcall(vim.api.nvim_win_set_cursor, 0, { prev_hl[1], 0 })
+
+  if prev_block then
+    pcall(vim.api.nvim_win_set_cursor, 0, { prev_block, 0 })
     vim.cmd("normal! zz")
     return
   end
-  
-  -- Wrap to last change
-  for i = #M.current_highlights, 1, -1 do
-    local hl = M.current_highlights[i]
-    if hl[2] == "DiffAdd" or hl[2] == "DiffDelete" then
-      pcall(vim.api.nvim_win_set_cursor, 0, { hl[1], 0 })
-      vim.cmd("normal! zz")
-      return
-    end
-  end
+
+  -- Wrap to last block
+  pcall(vim.api.nvim_win_set_cursor, 0, { blocks[#blocks], 0 })
+  vim.cmd("normal! zz")
 end
 
 function M.apply_highlights(buf, highlights)
@@ -598,6 +656,9 @@ end
 function M.close_file()
   if not M.current then return end
   
+  -- Close file path indicator
+  M.close_file_path_win()
+  
   -- Save state
   require("pr.cache").save_review(M.current)
   
@@ -629,6 +690,9 @@ function M.close_file()
 end
 
 function M.close()
+  -- Close file path indicator
+  M.close_file_path_win()
+  
   -- Save review state before closing
   if M.current then
     require("pr.cache").save_review(M.current)
