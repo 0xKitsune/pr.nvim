@@ -9,7 +9,7 @@ The plugin integrates with Telescope for file and PR picking, persists your revi
 ## Requirements
 
 - Neovim >= 0.9
-- [gh CLI](https://cli.github.com/) (authenticated)
+- [gh CLI](https://cli.github.com/)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (optional, for pickers)
 
 ## Installation
