@@ -105,20 +105,3 @@ In comment popup: `r` to reply, `d` to delete pending comments, `Esc` to close.
 7. Mark files reviewed with `v`
 8. `S` to submit your review
 9. `Q` to close (state is saved automatically)
-
-## Configuration
-
-```lua
-require("pr").setup({
-  provider = "github",  -- only github supported currently
-  keymaps = {
-    comment = "c",
-    suggest = "s",
-    reply = "r",
-    next_file = "]f",
-    prev_file = "[f",
-    next_comment = "]c",
-    prev_comment = "[c",
-  },
-})
-```
