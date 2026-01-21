@@ -2,6 +2,7 @@ local M = {}
 
 M.current = nil
 
+
 function M.open(pr_number, owner, repo)
   local github = require("pr.github")
   local cache = require("pr.cache")
@@ -59,7 +60,7 @@ function M.open(pr_number, owner, repo)
   end)
 end
 
-function M.open_file(file)
+function M.open_file(file, force_refresh)
   if not M.current then return end
 
   local idx = M.get_file_index(file)
@@ -67,12 +68,14 @@ function M.open_file(file)
     M.current.file_index = idx
   end
 
-  -- Check if already open in a tab
-  local existing_tab = M.find_existing_tab(file)
-  if existing_tab then
-    vim.api.nvim_set_current_tabpage(existing_tab)
-    M.update_statusline()
-    return
+  -- Check if already open in a tab (skip if forcing refresh for mode toggle)
+  if not force_refresh then
+    local existing_tab = M.find_existing_tab(file)
+    if existing_tab then
+      vim.api.nvim_set_current_tabpage(existing_tab)
+      M.update_statusline()
+      return
+    end
   end
 
   -- Get the diff for this specific file
@@ -80,7 +83,7 @@ function M.open_file(file)
   local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
   local file_diff = M.extract_file_diff(full_diff, file)
 
-  -- Create side-by-side view
+  -- Create side-by-side diff view
   M.show_side_by_side(file, file_diff)
 end
 
@@ -203,31 +206,33 @@ end
 function M.show_file_path(file)
   -- Close existing file path window
   M.close_file_path_win()
-
-  local buf = vim.api.nvim_create_buf(false, true)
-  local text = " " .. file .. " "
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { text })
-  vim.bo[buf].buftype = "nofile"
-  vim.bo[buf].modifiable = false
-
-  local width = #text
-  M.file_path_win = vim.api.nvim_open_win(buf, false, {
-    relative = "editor",
-    row = 0,
-    col = 0,
-    width = width,
-    height = 1,
-    style = "minimal",
-    border = "rounded",
-    focusable = false,
-    zindex = 100,
-  })
-
-  vim.wo[M.file_path_win].winhl = "Normal:TelescopePromptNormal,FloatBorder:TelescopePromptBorder"
-  M.file_path_buf = buf
+  
+  -- Use winbar instead of floating window to avoid covering text
+  local winbar_text = " 📁 " .. file .. " "
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("PR #%d+") then
+      vim.wo[win].winbar = winbar_text
+    end
+  end
 end
 
 function M.close_file_path_win()
+  -- Clear winbars from PR windows
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_is_valid(win) then
+      local ok, buf = pcall(vim.api.nvim_win_get_buf, win)
+      if ok then
+        local name = vim.api.nvim_buf_get_name(buf)
+        if name:match("PR #%d+") then
+          pcall(function() vim.wo[win].winbar = "" end)
+        end
+      end
+    end
+  end
+  
+  -- Legacy cleanup for floating window (if any)
   if M.file_path_win and vim.api.nvim_win_is_valid(M.file_path_win) then
     vim.api.nvim_win_close(M.file_path_win, true)
   end
@@ -382,6 +387,8 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", "<CR>", function() require("pr.threads").open_thread_at_cursor() end, vim.tbl_extend("force", opts, { desc = "Open comment" }))
   vim.keymap.set("n", "n", function() M.next_change() end, vim.tbl_extend("force", opts, { desc = "Next change" }))
   vim.keymap.set("n", "N", function() M.prev_change() end, vim.tbl_extend("force", opts, { desc = "Prev change" }))
+  vim.keymap.set("n", "gd", function() M.open_actual_file() end, vim.tbl_extend("force", opts, { desc = "Open actual file at cursor" }))
+  vim.keymap.set("n", "<C-]>", function() M.open_actual_file() end, vim.tbl_extend("force", opts, { desc = "Open actual file at cursor" }))
 end
 
 function M.get_file_index(file)
@@ -390,6 +397,35 @@ function M.get_file_index(file)
     if f == file then return i end
   end
   return nil
+end
+
+function M.open_actual_file()
+  if not M.current then
+    vim.notify("No active PR review", vim.log.levels.WARN)
+    return
+  end
+  
+  local file = M.current.files[M.current.file_index]
+  if not file then
+    vim.notify("No file selected", vim.log.levels.WARN)
+    return
+  end
+  
+  local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+  
+  -- Check if file exists in the working directory
+  local full_path = vim.fn.getcwd() .. "/" .. file
+  if vim.fn.filereadable(full_path) == 0 then
+    vim.notify("File not found locally: " .. file, vim.log.levels.WARN)
+    return
+  end
+  
+  -- Open in current window (so Ctrl+O works to go back)
+  vim.cmd("edit " .. vim.fn.fnameescape(full_path))
+  
+  -- Jump to the line
+  pcall(vim.api.nvim_win_set_cursor, 0, { cursor_line, 0 })
+  vim.cmd("normal! zz")
 end
 
 function M.next_file()
@@ -457,13 +493,17 @@ end
 function M.show_help()
   local help = {
     "PR Review Keybindings",
-    "──────────────────────────────",
+    "──────────────────────────────────",
     "",
     "f           File picker",
+    "F           Toggle full file view",
     "p           PR info/description",
-    "c           Add comment",
+    "c           Add comment (Ctrl+S submit)",
     "s           Add suggestion",
     "r           Reply to thread",
+    "e           Edit pending comment",
+    "d           Delete pending comment",
+    "Ctrl+] / gd Open file (Ctrl+O to return)",
     "v           Toggle file reviewed",
     "S           Submit review",
     "Enter       Open comment at cursor",
@@ -593,11 +633,17 @@ function M.submit(event, body)
   end
 
   local github = require("pr.github")
-
+  
+  -- Post pending comments
+  local failed_comments = {}
   for _, comment in ipairs(M.current.pending_comments) do
-    local ok, err = github.add_comment(M.current.owner, M.current.repo, M.current.number, comment.path, comment.line, comment.body)
+    local ok, err = github.add_comment(
+      M.current.owner, M.current.repo, M.current.number,
+      comment.path, comment.line, comment.body, comment.start_line
+    )
     if not ok then
       vim.notify("Failed to post comment: " .. (err or ""), vim.log.levels.ERROR)
+      table.insert(failed_comments, comment)
     end
   end
 
@@ -607,8 +653,13 @@ function M.submit(event, body)
     
     -- Clear saved state after successful submit
     require("pr.cache").clear_review(M.current.owner, M.current.repo, M.current.number)
-    M.current.pending_comments = {}
+    -- Keep failed comments for retry
+    M.current.pending_comments = failed_comments
     M.current.reviewed = {}
+    
+    if #failed_comments > 0 then
+      vim.notify(string.format("%d comments failed to post", #failed_comments), vim.log.levels.WARN)
+    end
   else
     vim.notify("Failed to submit: " .. (err or ""), vim.log.levels.ERROR)
   end

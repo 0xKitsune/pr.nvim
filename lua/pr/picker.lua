@@ -4,6 +4,11 @@ function M.list_prs(opts)
   opts = opts or {}
   local github = require("pr.github")
 
+  -- Check authentication first
+  if not github.require_auth(function() M.list_prs(opts) end) then
+    return
+  end
+
   local filter = ""
   if opts.author then
     filter = "--author " .. opts.author

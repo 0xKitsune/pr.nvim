@@ -6,6 +6,85 @@ local cache = require("pr.cache")
 M.pr_cache = nil
 M.current_user = nil
 M.prefetch_in_progress = false
+M.auth_checked = false
+M.is_authenticated = nil
+
+-- Check if user is authenticated with gh CLI
+function M.check_auth(callback)
+  if M.auth_checked then
+    if callback then callback(M.is_authenticated) end
+    return M.is_authenticated
+  end
+  
+  async.run("gh auth status 2>&1", function(result, _)
+    M.auth_checked = true
+    M.is_authenticated = result and result:match("Logged in to") ~= nil
+    if callback then callback(M.is_authenticated) end
+  end)
+end
+
+-- Show auth error in a floating window
+function M.show_auth_error()
+  local lines = {
+    "",
+    "  GitHub CLI not authenticated  ",
+    "",
+    "  Run this command in your terminal:",
+    "",
+    "    gh auth login",
+    "",
+    "  Then restart Neovim.",
+    "",
+  }
+  
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].modifiable = false
+  
+  local width = 40
+  local height = #lines
+  
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
+    width = width,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+    title = " ⚠ Authentication Required ",
+    title_pos = "center",
+  })
+  
+  vim.wo[win].winhl = "Normal:ErrorFloat,FloatBorder:ErrorFloat"
+  
+  -- Close on any key
+  vim.keymap.set("n", "<Esc>", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
+  vim.keymap.set("n", "q", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
+  vim.keymap.set("n", "<CR>", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
+end
+
+-- Wrapper to check auth before running commands
+function M.require_auth(callback)
+  if M.is_authenticated == false then
+    M.show_auth_error()
+    return false
+  end
+  
+  if M.is_authenticated == nil then
+    M.check_auth(function(authed)
+      if authed then
+        callback()
+      else
+        M.show_auth_error()
+      end
+    end)
+    return false
+  end
+  
+  return true
+end
 
 -- Prefetch PRs in background (call on nvim start)
 function M.prefetch()
@@ -285,7 +364,7 @@ function M.get_comments(owner, repo, pr_number, callback)
   end
 end
 
-function M.add_comment(owner, repo, pr_number, path, line, body)
+function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
   -- Get the head commit SHA for this PR
   local sha_cmd = string.format("gh pr view %s --repo %s/%s --json headRefOid --jq .headRefOid", pr_number, owner, repo)
   local commit_id = vim.fn.system(sha_cmd):gsub("%s+", "")
@@ -294,24 +373,68 @@ function M.add_comment(owner, repo, pr_number, path, line, body)
     return nil, "Failed to get commit SHA"
   end
   
-  -- Use gh pr comment for simpler line comments, or create review comment
-  local cmd = string.format(
-    "gh api repos/%s/%s/pulls/%s/comments " ..
-    "-f body=%q " ..
-    "-f path=%q " ..
-    "-f commit_id=%s " ..
-    "-F line=%d " ..
-    "-f side=RIGHT " ..
-    "-f subject_type=line 2>&1",
-    owner, repo, pr_number, body, path, commit_id, line
-  )
+  -- Build the API command for review comments
+  local cmd
+  if start_line and start_line < line then
+    -- Multi-line comment
+    cmd = string.format(
+      "gh api repos/%s/%s/pulls/%s/comments " ..
+      "-f body=%q " ..
+      "-f path=%q " ..
+      "-f commit_id=%s " ..
+      "-F line=%d " ..
+      "-F start_line=%d " ..
+      "-f side=RIGHT " ..
+      "-f start_side=RIGHT " ..
+      "-f subject_type=line 2>&1",
+      owner, repo, pr_number, body, path, commit_id, line, start_line
+    )
+  else
+    -- Single line comment
+    cmd = string.format(
+      "gh api repos/%s/%s/pulls/%s/comments " ..
+      "-f body=%q " ..
+      "-f path=%q " ..
+      "-f commit_id=%s " ..
+      "-F line=%d " ..
+      "-f side=RIGHT " ..
+      "-f subject_type=line 2>&1",
+      owner, repo, pr_number, body, path, commit_id, line
+    )
+  end
+  
   local result = vim.fn.system(cmd)
 
   if vim.v.shell_error ~= 0 then
-    return nil, "Failed to add comment: " .. result
+    -- Try to parse error for better message
+    local err_msg = result:match('"message":"([^"]+)"') or result
+    return nil, "Failed to add comment: " .. err_msg
   end
 
   return true, nil
+end
+
+function M.get_file_content(owner, repo, ref, path, callback)
+  local cmd = string.format("gh api repos/%s/%s/contents/%s?ref=%s --jq .content 2>&1", 
+    owner, repo, path, ref)
+  
+  if callback then
+    async.run(cmd, function(result, err)
+      if err or not result or result == "" then
+        callback(nil, err or "Failed to fetch file")
+        return
+      end
+      -- Decode base64 content
+      local decoded = vim.fn.system("echo " .. vim.fn.shellescape(result:gsub("%s+", "")) .. " | base64 -d")
+      callback(decoded, nil)
+    end)
+  else
+    local result = vim.fn.system(cmd)
+    if vim.v.shell_error ~= 0 then
+      return nil, result
+    end
+    return vim.fn.system("echo " .. vim.fn.shellescape(result:gsub("%s+", "")) .. " | base64 -d"), nil
+  end
 end
 
 function M.add_suggestion(owner, repo, pr_number, path, start_line, end_line, suggestion)

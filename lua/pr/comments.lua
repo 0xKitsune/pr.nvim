@@ -69,8 +69,17 @@ function M._open_comment_window(with_suggestion)
     title_pos = "center",
   })
 
-  -- Position cursor at the top for typing comment
-  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  -- Enable word wrap
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+
+  -- Position cursor appropriately
+  if with_suggestion then
+    -- For suggestions, put cursor after ```suggestion line
+    vim.api.nvim_win_set_cursor(win, { 2, 0 })
+  else
+    vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  end
   vim.cmd("startinsert")
 
   local function submit()
@@ -82,7 +91,8 @@ function M._open_comment_window(with_suggestion)
     if body:gsub("%s", "") ~= "" then
       table.insert(review.current.pending_comments, {
         path = file,
-        line = start_line,
+        line = end_line, -- Use end_line for GitHub API (last line of selection)
+        start_line = start_line,
         body = body,
       })
       local label = with_suggestion and "Suggestion" or "Comment"
@@ -97,12 +107,22 @@ function M._open_comment_window(with_suggestion)
     vim.api.nvim_win_close(win, true)
   end
 
-  -- Enter to submit (both normal and insert mode)
-  vim.keymap.set("n", "<CR>", submit, { buffer = buf })
-  vim.keymap.set("i", "<CR>", function()
+  -- Ctrl+Enter to submit (allows multiline with Enter)
+  vim.keymap.set("n", "<C-CR>", submit, { buffer = buf })
+  vim.keymap.set("i", "<C-CR>", function()
     vim.cmd("stopinsert")
     submit()
   end, { buffer = buf })
+  
+  -- Also support Ctrl+s to submit
+  vim.keymap.set("n", "<C-s>", submit, { buffer = buf })
+  vim.keymap.set("i", "<C-s>", function()
+    vim.cmd("stopinsert")
+    submit()
+  end, { buffer = buf })
+  
+  -- Normal mode Enter also submits (for quick single-line comments)
+  vim.keymap.set("n", "<CR>", submit, { buffer = buf })
 
   -- Escape to cancel (both modes)
   vim.keymap.set("n", "<Esc>", cancel, { buffer = buf })
