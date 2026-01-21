@@ -219,6 +219,10 @@ function M.show_thread_popup(thread)
     title_pos = "center",
   })
 
+  -- Enable word wrap for readability
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+
   -- Close on q or Esc
   vim.keymap.set("n", "q", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
   vim.keymap.set("n", "<Esc>", function() vim.api.nvim_win_close(win, true) end, { buffer = buf })
@@ -229,11 +233,16 @@ function M.show_thread_popup(thread)
     M.reply(thread.id)
   end, { buffer = buf })
   
-  -- Delete pending comment with d
+  -- Delete pending comment with d, edit with e
   if thread.pending then
     vim.keymap.set("n", "d", function()
       vim.api.nvim_win_close(win, true)
       M.delete_pending(thread.line)
+    end, { buffer = buf })
+    
+    vim.keymap.set("n", "e", function()
+      vim.api.nvim_win_close(win, true)
+      M.edit_pending(thread.line)
     end, { buffer = buf })
   end
 end
@@ -249,6 +258,80 @@ function M.delete_pending(line)
       table.remove(review.current.pending_comments, i)
       vim.notify("Deleted pending comment", vim.log.levels.INFO)
       M.show_all_comments()
+      return
+    end
+  end
+end
+
+function M.edit_pending(line)
+  local review = require("pr.review")
+  if not review.current then return end
+  
+  local current_file = review.current.files[review.current.file_index]
+  
+  for i, comment in ipairs(review.current.pending_comments) do
+    if comment.path == current_file and comment.line == line then
+      -- Open edit window with existing content
+      local lines = vim.split(comment.body, "\n")
+      
+      local buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.bo[buf].buftype = "nofile"
+      
+      local width = math.floor(vim.o.columns * 0.5)
+      local height = math.max(#lines + 3, 5)
+      
+      local title = string.format(" Edit comment %s:%d ", comment.path, comment.line)
+      
+      local win = vim.api.nvim_open_win(buf, true, {
+        relative = "cursor",
+        row = 1,
+        col = 0,
+        width = width,
+        height = height,
+        style = "minimal",
+        border = "rounded",
+        title = title,
+        title_pos = "center",
+      })
+      
+      vim.wo[win].wrap = true
+      vim.wo[win].linebreak = true
+      
+      local function save()
+        local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        local new_body = table.concat(new_lines, "\n")
+        vim.api.nvim_win_close(win, true)
+        
+        if new_body:gsub("%s", "") ~= "" then
+          comment.body = new_body
+          vim.notify("Comment updated", vim.log.levels.INFO)
+          M.show_all_comments()
+        else
+          -- Empty = delete
+          table.remove(review.current.pending_comments, i)
+          vim.notify("Comment deleted (empty)", vim.log.levels.INFO)
+          M.show_all_comments()
+        end
+      end
+      
+      local function cancel()
+        vim.api.nvim_win_close(win, true)
+      end
+      
+      vim.keymap.set("n", "<CR>", save, { buffer = buf })
+      vim.keymap.set("n", "<C-s>", save, { buffer = buf })
+      vim.keymap.set("i", "<C-s>", function()
+        vim.cmd("stopinsert")
+        save()
+      end, { buffer = buf })
+      vim.keymap.set("n", "<Esc>", cancel, { buffer = buf })
+      vim.keymap.set("i", "<Esc>", function()
+        vim.cmd("stopinsert")
+        cancel()
+      end, { buffer = buf })
+      vim.keymap.set("n", "q", cancel, { buffer = buf })
+      
       return
     end
   end

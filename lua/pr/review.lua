@@ -1,6 +1,7 @@
 local M = {}
 
 M.current = nil
+M.full_file_mode = true -- Toggle for showing full file vs diff-only
 
 function M.open(pr_number, owner, repo)
   local github = require("pr.github")
@@ -59,7 +60,7 @@ function M.open(pr_number, owner, repo)
   end)
 end
 
-function M.open_file(file)
+function M.open_file(file, force_refresh)
   if not M.current then return end
 
   local idx = M.get_file_index(file)
@@ -67,12 +68,14 @@ function M.open_file(file)
     M.current.file_index = idx
   end
 
-  -- Check if already open in a tab
-  local existing_tab = M.find_existing_tab(file)
-  if existing_tab then
-    vim.api.nvim_set_current_tabpage(existing_tab)
-    M.update_statusline()
-    return
+  -- Check if already open in a tab (skip if forcing refresh for mode toggle)
+  if not force_refresh then
+    local existing_tab = M.find_existing_tab(file)
+    if existing_tab then
+      vim.api.nvim_set_current_tabpage(existing_tab)
+      M.update_statusline()
+      return
+    end
   end
 
   -- Get the diff for this specific file
@@ -80,8 +83,137 @@ function M.open_file(file)
   local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
   local file_diff = M.extract_file_diff(full_diff, file)
 
-  -- Create side-by-side view
-  M.show_side_by_side(file, file_diff)
+  if M.full_file_mode then
+    -- Fetch full file content and show with diff highlights
+    M.show_full_file(file, file_diff)
+  else
+    -- Create side-by-side diff view
+    M.show_side_by_side(file, file_diff)
+  end
+end
+
+function M.toggle_full_file_mode()
+  M.full_file_mode = not M.full_file_mode
+  local mode = M.full_file_mode and "Full file" or "Diff only"
+  vim.notify("View mode: " .. mode, vim.log.levels.INFO)
+  
+  -- Refresh current file if one is open
+  if M.current and M.current.file_index and M.current.file_index > 0 then
+    local file = M.current.files[M.current.file_index]
+    if file then
+      -- Close current tab first
+      M.close_file()
+      -- Reopen with new mode
+      M.open_file(file, true)
+    end
+  end
+end
+
+function M.show_full_file(file, diff)
+  local github = require("pr.github")
+  
+  -- Parse diff to get changed line info
+  local changed_lines = M.parse_diff_changes(diff)
+  
+  -- Fetch the HEAD (new) version of the file
+  vim.notify("Loading full file...", vim.log.levels.INFO)
+  github.get_file_content(M.current.owner, M.current.repo, M.current.pr.headRefName, file, function(content, err)
+    if err or not content then
+      vim.notify("Failed to fetch file: " .. (err or "unknown error"), vim.log.levels.ERROR)
+      -- Fall back to diff view
+      M.full_file_mode = false
+      M.show_side_by_side(file, diff)
+      return
+    end
+    
+    vim.schedule(function()
+      M.close_buffers()
+      
+      local lines = vim.split(content, "\n")
+      
+      -- Create buffer
+      vim.cmd("tabnew")
+      local buf = vim.api.nvim_get_current_buf()
+      local buf_name = string.format("PR #%d FULL: %s", M.current.number, file)
+      pcall(vim.api.nvim_buf_set_name, buf, buf_name)
+      vim.bo[buf].buftype = "nofile"
+      vim.bo[buf].modifiable = true
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.bo[buf].modifiable = false
+      M.set_filetype_from_ext(buf, file)
+      
+      -- Apply diff highlights
+      local ns = vim.api.nvim_create_namespace("pr_diff")
+      for _, change in ipairs(changed_lines.added) do
+        if change <= #lines then
+          pcall(function()
+            vim.api.nvim_buf_add_highlight(buf, ns, "DiffAdd", change - 1, 0, -1)
+          end)
+        end
+      end
+      for _, change in ipairs(changed_lines.modified) do
+        if change <= #lines then
+          pcall(function()
+            vim.api.nvim_buf_add_highlight(buf, ns, "DiffChange", change - 1, 0, -1)
+          end)
+        end
+      end
+      
+      -- Store highlights for navigation
+      M.current_highlights = {}
+      for _, line in ipairs(changed_lines.added) do
+        table.insert(M.current_highlights, { line, "DiffAdd" })
+      end
+      for _, line in ipairs(changed_lines.modified) do
+        table.insert(M.current_highlights, { line, "DiffChange" })
+      end
+      table.sort(M.current_highlights, function(a, b) return a[1] < b[1] end)
+      
+      -- Setup keymaps
+      M.setup_keymaps(buf)
+      
+      -- Jump to first change
+      if #M.current_highlights > 0 then
+        pcall(vim.api.nvim_win_set_cursor, 0, { M.current_highlights[1][1], 0 })
+        vim.cmd("normal! zz")
+      end
+      
+      -- Show comments
+      require("pr.threads").show_all_comments()
+      
+      -- Show file path
+      M.show_file_path(file .. " (full file)")
+      M.update_statusline()
+    end)
+  end)
+end
+
+function M.parse_diff_changes(diff)
+  local added = {}
+  local modified = {}
+  
+  if not diff then return { added = added, modified = modified } end
+  
+  local lines = vim.split(diff, "\n")
+  local current_line = 0
+  
+  for _, line in ipairs(lines) do
+    -- Parse hunk header: @@ -old_start,old_count +new_start,new_count @@
+    local new_start = line:match("^@@ %-%d+,?%d* %+(%d+)")
+    if new_start then
+      current_line = tonumber(new_start) - 1
+    elseif line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
+      current_line = current_line + 1
+      table.insert(added, current_line)
+    elseif line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
+      -- Deletion - next add at same position is a modification
+      -- Don't increment line counter
+    elseif line:sub(1, 1) == " " then
+      current_line = current_line + 1
+    end
+  end
+  
+  return { added = added, modified = modified }
 end
 
 function M.extract_file_diff(full_diff, file)
@@ -203,31 +335,33 @@ end
 function M.show_file_path(file)
   -- Close existing file path window
   M.close_file_path_win()
-
-  local buf = vim.api.nvim_create_buf(false, true)
-  local text = " " .. file .. " "
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { text })
-  vim.bo[buf].buftype = "nofile"
-  vim.bo[buf].modifiable = false
-
-  local width = #text
-  M.file_path_win = vim.api.nvim_open_win(buf, false, {
-    relative = "editor",
-    row = 0,
-    col = 0,
-    width = width,
-    height = 1,
-    style = "minimal",
-    border = "rounded",
-    focusable = false,
-    zindex = 100,
-  })
-
-  vim.wo[M.file_path_win].winhl = "Normal:TelescopePromptNormal,FloatBorder:TelescopePromptBorder"
-  M.file_path_buf = buf
+  
+  -- Use winbar instead of floating window to avoid covering text
+  local winbar_text = " 📁 " .. file .. " "
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("PR #%d+") then
+      vim.wo[win].winbar = winbar_text
+    end
+  end
 end
 
 function M.close_file_path_win()
+  -- Clear winbars from PR windows
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_is_valid(win) then
+      local ok, buf = pcall(vim.api.nvim_win_get_buf, win)
+      if ok then
+        local name = vim.api.nvim_buf_get_name(buf)
+        if name:match("PR #%d+") then
+          pcall(function() vim.wo[win].winbar = "" end)
+        end
+      end
+    end
+  end
+  
+  -- Legacy cleanup for floating window (if any)
   if M.file_path_win and vim.api.nvim_win_is_valid(M.file_path_win) then
     vim.api.nvim_win_close(M.file_path_win, true)
   end
@@ -382,6 +516,10 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", "<CR>", function() require("pr.threads").open_thread_at_cursor() end, vim.tbl_extend("force", opts, { desc = "Open comment" }))
   vim.keymap.set("n", "n", function() M.next_change() end, vim.tbl_extend("force", opts, { desc = "Next change" }))
   vim.keymap.set("n", "N", function() M.prev_change() end, vim.tbl_extend("force", opts, { desc = "Prev change" }))
+  vim.keymap.set("n", "F", function() M.toggle_full_file_mode() end, vim.tbl_extend("force", opts, { desc = "Toggle full file view" }))
+  vim.keymap.set("n", "gd", function() M.open_actual_file() end, vim.tbl_extend("force", opts, { desc = "Open actual file at cursor" }))
+  vim.keymap.set("n", "go", function() M.open_actual_file() end, vim.tbl_extend("force", opts, { desc = "Open actual file at cursor" }))
+  vim.keymap.set("n", "<C-]>", function() M.open_actual_file() end, vim.tbl_extend("force", opts, { desc = "Open actual file at cursor" }))
 end
 
 function M.get_file_index(file)
@@ -390,6 +528,37 @@ function M.get_file_index(file)
     if f == file then return i end
   end
   return nil
+end
+
+function M.open_actual_file()
+  if not M.current then
+    vim.notify("No active PR review", vim.log.levels.WARN)
+    return
+  end
+  
+  local file = M.current.files[M.current.file_index]
+  if not file then
+    vim.notify("No file selected", vim.log.levels.WARN)
+    return
+  end
+  
+  local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+  
+  -- Check if file exists in the working directory
+  local full_path = vim.fn.getcwd() .. "/" .. file
+  if vim.fn.filereadable(full_path) == 0 then
+    vim.notify("File not found locally: " .. file, vim.log.levels.WARN)
+    return
+  end
+  
+  -- Open in a new tab
+  vim.cmd("tabnew " .. vim.fn.fnameescape(full_path))
+  
+  -- Jump to the line
+  pcall(vim.api.nvim_win_set_cursor, 0, { cursor_line, 0 })
+  vim.cmd("normal! zz")
+  
+  vim.notify("Opened: " .. file .. " (LSP available)", vim.log.levels.INFO)
 end
 
 function M.next_file()
@@ -457,13 +626,17 @@ end
 function M.show_help()
   local help = {
     "PR Review Keybindings",
-    "──────────────────────────────",
+    "──────────────────────────────────",
     "",
     "f           File picker",
+    "F           Toggle full file view",
     "p           PR info/description",
-    "c           Add comment",
+    "c           Add comment (Ctrl+S submit)",
     "s           Add suggestion",
     "r           Reply to thread",
+    "e           Edit pending comment",
+    "d           Delete pending comment",
+    "Ctrl+] / gd Open actual file (LSP works)",
     "v           Toggle file reviewed",
     "S           Submit review",
     "Enter       Open comment at cursor",
@@ -593,11 +766,17 @@ function M.submit(event, body)
   end
 
   local github = require("pr.github")
-
+  
+  -- Post pending comments
+  local failed_comments = {}
   for _, comment in ipairs(M.current.pending_comments) do
-    local ok, err = github.add_comment(M.current.owner, M.current.repo, M.current.number, comment.path, comment.line, comment.body)
+    local ok, err = github.add_comment(
+      M.current.owner, M.current.repo, M.current.number,
+      comment.path, comment.line, comment.body, comment.start_line
+    )
     if not ok then
       vim.notify("Failed to post comment: " .. (err or ""), vim.log.levels.ERROR)
+      table.insert(failed_comments, comment)
     end
   end
 
@@ -607,8 +786,13 @@ function M.submit(event, body)
     
     -- Clear saved state after successful submit
     require("pr.cache").clear_review(M.current.owner, M.current.repo, M.current.number)
-    M.current.pending_comments = {}
+    -- Keep failed comments for retry
+    M.current.pending_comments = failed_comments
     M.current.reviewed = {}
+    
+    if #failed_comments > 0 then
+      vim.notify(string.format("%d comments failed to post", #failed_comments), vim.log.levels.WARN)
+    end
   else
     vim.notify("Failed to submit: " .. (err or ""), vim.log.levels.ERROR)
   end

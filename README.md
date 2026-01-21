@@ -76,10 +76,14 @@ In review mode:
 | Key | Action |
 |-----|--------|
 | `f` | Open file picker |
+| `F` | Toggle full file view (see entire file with changes highlighted) |
 | `p` | Show PR info/description |
-| `c` | Add comment at cursor |
+| `c` | Add comment at cursor (Ctrl+S or Enter in normal mode to submit) |
 | `s` | Add suggestion (with code block) |
 | `r` | Reply to thread |
+| `e` | Edit pending comment |
+| `d` | Delete pending comment |
+| `Ctrl+]` / `gd` | Open actual file at cursor (enables LSP/go-to-definition) |
 | `v` | Toggle file as reviewed |
 | `S` | Submit review |
 | `Enter` | Open comment at cursor |
@@ -92,7 +96,7 @@ In review mode:
 
 In file picker: `Ctrl+v` toggles reviewed status.
 
-In comment popup: `r` to reply, `d` to delete pending comments, `Esc` to close.
+In comment popup: `r` to reply, `e` to edit pending, `d` to delete pending, `Esc` to close.
 
 ## Workflow
 
@@ -100,8 +104,45 @@ In comment popup: `r` to reply, `d` to delete pending comments, `Esc` to close.
 2. Select a PR to open file picker (with diff preview)
 3. Select a file to view side-by-side diff
 4. Auto-jumps to first change in file
-5. Navigate with `]f`/`[f` (files) and `]c`/`[c` (comments)
-6. Press `c` to comment, `s` to suggest changes
-7. Mark files reviewed with `v`
-8. `S` to submit your review
-9. `Q` to close (state is saved automatically)
+5. Press `F` to toggle full file view (helpful for more context)
+6. Navigate with `]f`/`[f` (files) and `]c`/`[c` (comments)
+7. Press `c` to comment, `s` to suggest changes
+8. Mark files reviewed with `v`
+9. `S` to submit your review
+10. `Q` to close (state is saved automatically)
+
+## Programmatic API
+
+The plugin exposes Lua functions for integration with AI tools like amp or claude:
+
+```lua
+-- Check if a PR review is active
+local status = require("pr").get_status()
+-- Returns: { active = true, pr_number = 123, owner = "...", repo = "...", files = {...} }
+
+-- Add a comment programmatically
+require("pr").add_comment({
+  path = "src/main.lua",
+  line = 42,
+  body = "Consider using a constant here",
+})
+
+-- Add a code suggestion
+require("pr").add_suggestion({
+  path = "src/main.lua",
+  line = 42,
+  code = "local TIMEOUT = 30",
+})
+
+-- List pending comments
+local pending = require("pr").list_pending_comments()
+
+-- Submit the review
+require("pr").submit_review({ event = "comment", body = "Some notes" })
+-- event can be: "approve", "comment", "request_changes"
+```
+
+These functions can be called via Neovim's RPC or from the command line:
+```bash
+nvim --headless -c "lua require('pr').add_comment({path='src/foo.lua', line=10, body='Fix this'})" -c "qa"
+```
