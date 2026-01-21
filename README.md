@@ -76,14 +76,13 @@ In review mode:
 | Key | Action |
 |-----|--------|
 | `f` | Open file picker |
-| `F` | Toggle full file view (see entire file with changes highlighted) |
 | `p` | Show PR info/description |
 | `c` | Add comment at cursor (Ctrl+S or Enter in normal mode to submit) |
 | `s` | Add suggestion (with code block) |
 | `r` | Reply to thread |
 | `e` | Edit pending comment |
 | `d` | Delete pending comment |
-| `Ctrl+]` / `gd` | Open actual file at cursor (enables LSP/go-to-definition) |
+| `Ctrl+]` / `gd` | Open actual file (Ctrl+O to return, LSP works) |
 | `v` | Toggle file as reviewed |
 | `S` | Submit review |
 | `Enter` | Open comment at cursor |
@@ -104,12 +103,11 @@ In comment popup: `r` to reply, `e` to edit pending, `d` to delete pending, `Esc
 2. Select a PR to open file picker (with diff preview)
 3. Select a file to view side-by-side diff
 4. Auto-jumps to first change in file
-5. Press `F` to toggle full file view (helpful for more context)
-6. Navigate with `]f`/`[f` (files) and `]c`/`[c` (comments)
-7. Press `c` to comment, `s` to suggest changes
-8. Mark files reviewed with `v`
-9. `S` to submit your review
-10. `Q` to close (state is saved automatically)
+5. Navigate with `]f`/`[f` (files) and `]c`/`[c` (comments)
+6. Press `c` to comment, `s` to suggest changes
+7. Mark files reviewed with `v`
+8. `S` to submit your review
+9. `Q` to close (state is saved automatically)
 
 ## Programmatic API
 
