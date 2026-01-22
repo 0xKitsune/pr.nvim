@@ -62,7 +62,7 @@ function M.show_all_comments()
     if thread.line then
       pcall(function()
         vim.api.nvim_buf_set_extmark(right_buf, ns, thread.line - 1, 0, {
-          sign_text = "💬",
+          sign_text = thread.pending and "📝" or "💬",
           sign_hl_group = thread.pending and "DiagnosticWarn" or "DiagnosticInfo",
         })
       end)
@@ -244,6 +244,41 @@ function M.show_thread_popup(thread)
       vim.api.nvim_win_close(win, true)
       M.edit_pending(thread.line)
     end, { buffer = buf })
+  else
+    -- Delete committed comment (only if it's yours)
+    local github = require("pr.github")
+    if thread.author == github.current_user then
+      vim.keymap.set("n", "d", function()
+        vim.ui.select({ "Yes", "No" }, { prompt = "Delete this comment?" }, function(choice)
+          if choice == "Yes" then
+            vim.api.nvim_win_close(win, true)
+            M.delete_committed(thread)
+          end
+        end)
+      end, { buffer = buf })
+    end
+  end
+end
+
+function M.delete_committed(thread)
+  local review = require("pr.review")
+  local github = require("pr.github")
+  
+  if not review.current then return end
+  
+  local ok, err = github.delete_comment(review.current.owner, review.current.repo, thread.id)
+  if ok then
+    vim.notify("Comment deleted", vim.log.levels.INFO)
+    -- Remove from local threads
+    for i, t in ipairs(M.threads) do
+      if t.id == thread.id then
+        table.remove(M.threads, i)
+        break
+      end
+    end
+    M.show_all_comments()
+  else
+    vim.notify(err or "Failed to delete comment", vim.log.levels.ERROR)
   end
 end
 

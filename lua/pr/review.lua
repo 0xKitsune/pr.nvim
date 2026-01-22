@@ -3,16 +3,55 @@ local M = {}
 M.current = nil
 
 
+-- Check if current branch has an open PR and open it
+function M.open_current_branch_pr(callback)
+  local async = require("pr.async")
+  local github = require("pr.github")
+  
+  -- Check auth first
+  if not github.require_auth(function() M.open_current_branch_pr(callback) end) then
+    return
+  end
+  
+  -- Use gh pr view to check for PR on current branch - include URL for correct owner/repo casing
+  async.run_json("gh pr view --json number,url 2>/dev/null", function(pr, err)
+    if err or not pr or not pr.number then
+      -- No PR for current branch
+      if callback then callback(false) end
+      return
+    end
+    
+    -- Extract owner/repo from URL (has correct casing)
+    local owner, repo
+    if pr.url then
+      owner, repo = pr.url:match("github%.com/([^/]+)/([^/]+)/pull")
+    end
+    
+    -- Found a PR, open it with correct owner/repo
+    vim.schedule(function()
+      if owner and repo then
+        M.open(pr.number, owner, repo)
+      else
+        M.open(pr.number)
+      end
+      if callback then callback(true) end
+    end)
+  end)
+end
+
 function M.open(pr_number, owner, repo)
   local github = require("pr.github")
   local cache = require("pr.cache")
 
   if not owner or not repo then
-    owner, repo = github.get_repo_info()
-  end
-
-  if not owner or not repo then
-    vim.notify("Could not detect repository. Use :PR owner/repo#number", vim.log.levels.ERROR)
+    -- Use async version to get correct casing
+    github.get_repo_info(function(o, r)
+      if not o or not r then
+        vim.notify("Could not detect repository. Use :PR owner/repo#number", vim.log.levels.ERROR)
+        return
+      end
+      M.open(pr_number, o, r)
+    end)
     return
   end
 
@@ -120,30 +159,55 @@ function M.show_side_by_side(file, diff)
   local left_hl = {}
   local right_hl = {}
 
-  local line_left = 0
-  local line_right = 0
+  -- Maps: buffer line number -> actual file line number
+  local left_line_map = {}
+  local right_line_map = {}
+
+  local buf_line_left = 0
+  local buf_line_right = 0
+  local file_line_left = 0  -- actual line number in base file
+  local file_line_right = 0  -- actual line number in head file
 
   for _, line in ipairs(lines) do
     if line:match("^@@") then
-      -- Skip hunk headers
+      -- Parse hunk header: @@ -start[,count] +start[,count] @@
+      -- Examples: @@ -10,5 +12,7 @@  or  @@ -1 +1 @@  or  @@ -0,0 +1,10 @@
+      local left_start = line:match("^@@ %-(%d+)")
+      local right_start = line:match("%+(%d+)")
+      if left_start and right_start then
+        file_line_left = tonumber(left_start) - 1  -- -1 because we increment before use
+        file_line_right = tonumber(right_start) - 1
+      end
     elseif line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
       table.insert(left_lines, line:sub(2))
-      line_left = line_left + 1
-      table.insert(left_hl, { line_left, "DiffDelete" })
+      buf_line_left = buf_line_left + 1
+      file_line_left = file_line_left + 1
+      left_line_map[buf_line_left] = file_line_left
+      table.insert(left_hl, { buf_line_left, "DiffDelete" })
     elseif line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
       table.insert(right_lines, line:sub(2))
-      line_right = line_right + 1
-      table.insert(right_hl, { line_right, "DiffAdd" })
+      buf_line_right = buf_line_right + 1
+      file_line_right = file_line_right + 1
+      right_line_map[buf_line_right] = file_line_right
+      table.insert(right_hl, { buf_line_right, "DiffAdd" })
     elseif line:sub(1, 1) == " " then
       table.insert(left_lines, line:sub(2))
       table.insert(right_lines, line:sub(2))
-      line_left = line_left + 1
-      line_right = line_right + 1
+      buf_line_left = buf_line_left + 1
+      buf_line_right = buf_line_right + 1
+      file_line_left = file_line_left + 1
+      file_line_right = file_line_right + 1
+      left_line_map[buf_line_left] = file_line_left
+      right_line_map[buf_line_right] = file_line_right
     elseif not line:match("^diff") and not line:match("^index") and not line:match("^%-%-%-") and not line:match("^%+%+%+") then
       table.insert(left_lines, line)
       table.insert(right_lines, line)
-      line_left = line_left + 1
-      line_right = line_right + 1
+      buf_line_left = buf_line_left + 1
+      buf_line_right = buf_line_right + 1
+      file_line_left = file_line_left + 1
+      file_line_right = file_line_right + 1
+      left_line_map[buf_line_left] = file_line_left
+      right_line_map[buf_line_right] = file_line_right
     end
   end
 
@@ -154,6 +218,13 @@ function M.show_side_by_side(file, diff)
   while #right_lines < #left_lines do
     table.insert(right_lines, "")
   end
+
+  -- Store line maps for comment positioning
+  M.current.line_maps = M.current.line_maps or {}
+  M.current.line_maps[file] = {
+    left = left_line_map,
+    right = right_line_map,
+  }
 
   -- Create left buffer (base)
   vim.cmd("tabnew")
@@ -621,18 +692,28 @@ function M.submit(event, body)
   end
 
   if not event or not vim.tbl_contains({ "approve", "comment", "request_changes" }, event) then
-    vim.ui.select({ "approve", "comment", "request_changes" }, { prompt = "Submit review as:" }, function(choice)
-      if choice then
-        -- Prompt for optional comment
-        vim.ui.input({ prompt = "Comment (optional): " }, function(input)
-          M.submit(choice, input)
-        end)
-      end
+    vim.ui.select({ "Approve", "Comment", "Request Changes" }, { prompt = "Submit review as:" }, function(choice)
+      if not choice then return end
+      
+      local event_map = {
+        ["Approve"] = "approve",
+        ["Comment"] = "comment", 
+        ["Request Changes"] = "request_changes",
+      }
+      local selected_event = event_map[choice]
+      
+      -- Top-level comment is always optional (inline comments count as review content)
+      vim.ui.input({ prompt = "Review comment (optional): " }, function(input)
+        M.submit(selected_event, input)
+      end)
     end)
     return
   end
 
   local github = require("pr.github")
+  
+  -- Track if we had inline comments to post
+  local had_pending_comments = #M.current.pending_comments > 0
   
   -- Post pending comments
   local failed_comments = {}
@@ -647,7 +728,21 @@ function M.submit(event, body)
     end
   end
 
-  local ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
+  -- For "comment" review with no body, skip the review call if we had inline comments
+  -- (the inline comments ARE the review content)
+  local posted_comments = had_pending_comments and #failed_comments < #M.current.pending_comments
+  local skip_review = event == "comment" and (not body or body == "") and posted_comments
+  
+  local ok, err = true, nil
+  if not skip_review then
+    -- For "comment" with no body and no inline comments, require a body
+    if event == "comment" and (not body or body == "") then
+      vim.notify("Comment review requires either inline comments or a review body", vim.log.levels.WARN)
+      return
+    end
+    ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
+  end
+  
   if ok then
     vim.notify("Review submitted: " .. event, vim.log.levels.INFO)
     

@@ -89,10 +89,29 @@ function M._open_comment_window(with_suggestion)
     local body = table.concat(lines, "\n")
 
     if body:gsub("%s", "") ~= "" then
+      -- Translate buffer line numbers to actual file line numbers
+      local actual_end_line = end_line
+      local actual_start_line = start_line
+      
+      if review.current.line_maps and review.current.line_maps[file] then
+        local line_map = review.current.line_maps[file].right
+        if line_map then
+          actual_end_line = line_map[end_line]
+          actual_start_line = line_map[start_line]
+          
+          if not actual_end_line then
+            vim.notify(string.format("Cannot comment on line %d - not part of the diff", end_line), vim.log.levels.ERROR)
+            return
+          end
+        end
+      else
+        vim.notify("Line map not available - try reopening the file", vim.log.levels.WARN)
+      end
+      
       table.insert(review.current.pending_comments, {
         path = file,
-        line = end_line, -- Use end_line for GitHub API (last line of selection)
-        start_line = start_line,
+        line = actual_end_line,
+        start_line = actual_start_line,
         body = body,
       })
       local label = with_suggestion and "Suggestion" or "Comment"
@@ -107,11 +126,17 @@ function M._open_comment_window(with_suggestion)
     vim.api.nvim_win_close(win, true)
   end
 
-  -- Ctrl+Enter to submit (allows multiline with Enter)
-  vim.keymap.set("n", "<C-CR>", submit, { buffer = buf })
-  vim.keymap.set("i", "<C-CR>", function()
+  -- Enter submits (in both modes)
+  vim.keymap.set("n", "<CR>", submit, { buffer = buf })
+  vim.keymap.set("i", "<CR>", function()
     vim.cmd("stopinsert")
     submit()
+  end, { buffer = buf })
+  
+  -- Ctrl+Enter for newline (multiline comments)
+  vim.keymap.set("i", "<C-CR>", function()
+    vim.api.nvim_put({ "", "" }, "c", true, true)
+    vim.api.nvim_win_set_cursor(0, { vim.api.nvim_win_get_cursor(0)[1], 0 })
   end, { buffer = buf })
   
   -- Also support Ctrl+s to submit
@@ -120,9 +145,6 @@ function M._open_comment_window(with_suggestion)
     vim.cmd("stopinsert")
     submit()
   end, { buffer = buf })
-  
-  -- Normal mode Enter also submits (for quick single-line comments)
-  vim.keymap.set("n", "<CR>", submit, { buffer = buf })
 
   -- Escape to cancel (both modes)
   vim.keymap.set("n", "<Esc>", cancel, { buffer = buf })
