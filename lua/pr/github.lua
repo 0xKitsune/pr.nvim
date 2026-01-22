@@ -422,27 +422,25 @@ function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
   if start_line and start_line < line then
     -- Multi-line comment
     cmd = string.format(
-      "gh api repos/%s/%s/pulls/%s/comments " ..
-      "-f body=%q " ..
-      "-f path=%q " ..
-      "-f commit_id=%s " ..
-      "-F line=%d " ..
-      "-F start_line=%d " ..
-      "-f side=RIGHT " ..
-      "-f start_side=RIGHT " ..
-      "-f subject_type=line 2>&1",
+      "gh api repos/%s/%s/pulls/%s/comments --method POST " ..
+      "--field body=%q " ..
+      "--field path=%q " ..
+      "--field commit_id=%s " ..
+      "--field line=%d " ..
+      "--field start_line=%d " ..
+      "--field side=RIGHT " ..
+      "--field start_side=RIGHT 2>&1",
       owner, repo, pr_number, body, path, commit_id, line, start_line
     )
   else
     -- Single line comment
     cmd = string.format(
-      "gh api repos/%s/%s/pulls/%s/comments " ..
-      "-f body=%q " ..
-      "-f path=%q " ..
-      "-f commit_id=%s " ..
-      "-F line=%d " ..
-      "-f side=RIGHT " ..
-      "-f subject_type=line 2>&1",
+      "gh api repos/%s/%s/pulls/%s/comments --method POST " ..
+      "--field body=%q " ..
+      "--field path=%q " ..
+      "--field commit_id=%s " ..
+      "--field line=%d " ..
+      "--field side=RIGHT 2>&1",
       owner, repo, pr_number, body, path, commit_id, line
     )
   end
@@ -515,11 +513,12 @@ function M.submit_review(owner, repo, pr_number, event, body)
   
   local cmd = string.format("gh pr review %s --repo %s/%s %s", pr_number, owner, repo, flag)
 
-  -- --comment requires a body
+  -- --comment requires a body, reject if empty
   if event == "comment" and (not body or body == "") then
-    body = "Review submitted"
+    return nil, "Comment review requires a body"
   end
   
+  -- Only add body if provided (optional for approve/request_changes)
   if body and body ~= "" then
     cmd = cmd .. string.format(" --body %q", body)
   end
