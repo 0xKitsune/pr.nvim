@@ -513,10 +513,7 @@ function M.submit_review(owner, repo, pr_number, event, body)
   
   local cmd = string.format("gh pr review %s --repo %s/%s %s", pr_number, owner, repo, flag)
 
-  -- --comment requires a body, reject if empty
-  if event == "comment" and (not body or body == "") then
-    return nil, "Comment review requires a body"
-  end
+  -- Body is always optional - inline comments count as review content
   
   -- Only add body if provided (optional for approve/request_changes)
   if body and body ~= "" then

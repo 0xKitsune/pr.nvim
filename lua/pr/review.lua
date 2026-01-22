@@ -692,13 +692,20 @@ function M.submit(event, body)
   end
 
   if not event or not vim.tbl_contains({ "approve", "comment", "request_changes" }, event) then
-    vim.ui.select({ "approve", "comment", "request_changes" }, { prompt = "Submit review as:" }, function(choice)
-      if choice then
-        -- Prompt for optional comment
-        vim.ui.input({ prompt = "Comment (optional): " }, function(input)
-          M.submit(choice, input)
-        end)
-      end
+    vim.ui.select({ "Approve", "Comment", "Request Changes" }, { prompt = "Submit review as:" }, function(choice)
+      if not choice then return end
+      
+      local event_map = {
+        ["Approve"] = "approve",
+        ["Comment"] = "comment", 
+        ["Request Changes"] = "request_changes",
+      }
+      local selected_event = event_map[choice]
+      
+      -- Top-level comment is always optional (inline comments count as review content)
+      vim.ui.input({ prompt = "Review comment (optional): " }, function(input)
+        M.submit(selected_event, input)
+      end)
     end)
     return
   end
