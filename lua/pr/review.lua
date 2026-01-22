@@ -3,16 +3,55 @@ local M = {}
 M.current = nil
 
 
+-- Check if current branch has an open PR and open it
+function M.open_current_branch_pr(callback)
+  local async = require("pr.async")
+  local github = require("pr.github")
+  
+  -- Check auth first
+  if not github.require_auth(function() M.open_current_branch_pr(callback) end) then
+    return
+  end
+  
+  -- Use gh pr view to check for PR on current branch - include URL for correct owner/repo casing
+  async.run_json("gh pr view --json number,url 2>/dev/null", function(pr, err)
+    if err or not pr or not pr.number then
+      -- No PR for current branch
+      if callback then callback(false) end
+      return
+    end
+    
+    -- Extract owner/repo from URL (has correct casing)
+    local owner, repo
+    if pr.url then
+      owner, repo = pr.url:match("github%.com/([^/]+)/([^/]+)/pull")
+    end
+    
+    -- Found a PR, open it with correct owner/repo
+    vim.schedule(function()
+      if owner and repo then
+        M.open(pr.number, owner, repo)
+      else
+        M.open(pr.number)
+      end
+      if callback then callback(true) end
+    end)
+  end)
+end
+
 function M.open(pr_number, owner, repo)
   local github = require("pr.github")
   local cache = require("pr.cache")
 
   if not owner or not repo then
-    owner, repo = github.get_repo_info()
-  end
-
-  if not owner or not repo then
-    vim.notify("Could not detect repository. Use :PR owner/repo#number", vim.log.levels.ERROR)
+    -- Use async version to get correct casing
+    github.get_repo_info(function(o, r)
+      if not o or not r then
+        vim.notify("Could not detect repository. Use :PR owner/repo#number", vim.log.levels.ERROR)
+        return
+      end
+      M.open(pr_number, o, r)
+    end)
     return
   end
 

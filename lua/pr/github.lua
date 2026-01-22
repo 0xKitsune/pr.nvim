@@ -113,16 +113,55 @@ function M.prefetch()
   end)
 end
 
-function M.get_repo_info()
+-- Cache for correct owner/repo casing
+M.repo_info_cache = nil
+
+function M.get_repo_info(callback)
+  -- Return cached if available
+  if M.repo_info_cache then
+    if callback then
+      callback(M.repo_info_cache.owner, M.repo_info_cache.repo)
+      return
+    end
+    return M.repo_info_cache.owner, M.repo_info_cache.repo
+  end
+  
   local remote = vim.fn.system("git remote get-url origin 2>/dev/null"):gsub("%s+", "")
   if vim.v.shell_error ~= 0 then
+    if callback then callback(nil, nil) end
     return nil, nil
   end
 
-  local owner, repo = remote:match("github%.com[:/]([^/]+)/([^/%.]+)")
+  local owner, repo = remote:match("github%.com[:/]([^/]+)/([^/]+)")
   if repo then
     repo = repo:gsub("%.git$", "")
   end
+  
+  if not owner or not repo then
+    if callback then callback(nil, nil) end
+    return nil, nil
+  end
+  
+  -- For async mode, fetch correct casing from GitHub
+  if callback then
+    local cmd = string.format("gh repo view %s/%s --json owner,name --jq '.owner.login + \"/\" + .name' 2>/dev/null", owner, repo)
+    async.run(cmd, function(result, err)
+      if not err and result and result:match("/") then
+        local correct_owner, correct_repo = result:gsub("%s+", ""):match("([^/]+)/(.+)")
+        if correct_owner and correct_repo then
+          M.repo_info_cache = { owner = correct_owner, repo = correct_repo }
+          callback(correct_owner, correct_repo)
+          return
+        end
+      end
+      -- Fallback to parsed values
+      M.repo_info_cache = { owner = owner, repo = repo }
+      callback(owner, repo)
+    end)
+    return
+  end
+  
+  -- Sync mode - just return parsed values (used for quick checks)
   return owner, repo
 end
 
