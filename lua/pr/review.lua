@@ -712,6 +712,9 @@ function M.submit(event, body)
 
   local github = require("pr.github")
   
+  -- Track if we had inline comments to post
+  local had_pending_comments = #M.current.pending_comments > 0
+  
   -- Post pending comments
   local failed_comments = {}
   for _, comment in ipairs(M.current.pending_comments) do
@@ -725,7 +728,21 @@ function M.submit(event, body)
     end
   end
 
-  local ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
+  -- For "comment" review with no body, skip the review call if we had inline comments
+  -- (the inline comments ARE the review content)
+  local posted_comments = had_pending_comments and #failed_comments < #M.current.pending_comments
+  local skip_review = event == "comment" and (not body or body == "") and posted_comments
+  
+  local ok, err = true, nil
+  if not skip_review then
+    -- For "comment" with no body and no inline comments, require a body
+    if event == "comment" and (not body or body == "") then
+      vim.notify("Comment review requires either inline comments or a review body", vim.log.levels.WARN)
+      return
+    end
+    ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
+  end
+  
   if ok then
     vim.notify("Review submitted: " .. event, vim.log.levels.INFO)
     
