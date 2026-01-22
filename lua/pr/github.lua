@@ -365,6 +365,11 @@ function M.get_comments(owner, repo, pr_number, callback)
 end
 
 function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
+  -- Validate line number
+  if not line or line < 1 then
+    return nil, string.format("Invalid line number: %s", tostring(line))
+  end
+  
   -- Get the head commit SHA for this PR
   local sha_cmd = string.format("gh pr view %s --repo %s/%s --json headRefOid --jq .headRefOid", pr_number, owner, repo)
   local commit_id = vim.fn.system(sha_cmd):gsub("%s+", "")

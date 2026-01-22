@@ -120,30 +120,55 @@ function M.show_side_by_side(file, diff)
   local left_hl = {}
   local right_hl = {}
 
-  local line_left = 0
-  local line_right = 0
+  -- Maps: buffer line number -> actual file line number
+  local left_line_map = {}
+  local right_line_map = {}
+
+  local buf_line_left = 0
+  local buf_line_right = 0
+  local file_line_left = 0  -- actual line number in base file
+  local file_line_right = 0  -- actual line number in head file
 
   for _, line in ipairs(lines) do
     if line:match("^@@") then
-      -- Skip hunk headers
+      -- Parse hunk header: @@ -start[,count] +start[,count] @@
+      -- Examples: @@ -10,5 +12,7 @@  or  @@ -1 +1 @@  or  @@ -0,0 +1,10 @@
+      local left_start = line:match("^@@ %-(%d+)")
+      local right_start = line:match("%+(%d+)")
+      if left_start and right_start then
+        file_line_left = tonumber(left_start) - 1  -- -1 because we increment before use
+        file_line_right = tonumber(right_start) - 1
+      end
     elseif line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
       table.insert(left_lines, line:sub(2))
-      line_left = line_left + 1
-      table.insert(left_hl, { line_left, "DiffDelete" })
+      buf_line_left = buf_line_left + 1
+      file_line_left = file_line_left + 1
+      left_line_map[buf_line_left] = file_line_left
+      table.insert(left_hl, { buf_line_left, "DiffDelete" })
     elseif line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
       table.insert(right_lines, line:sub(2))
-      line_right = line_right + 1
-      table.insert(right_hl, { line_right, "DiffAdd" })
+      buf_line_right = buf_line_right + 1
+      file_line_right = file_line_right + 1
+      right_line_map[buf_line_right] = file_line_right
+      table.insert(right_hl, { buf_line_right, "DiffAdd" })
     elseif line:sub(1, 1) == " " then
       table.insert(left_lines, line:sub(2))
       table.insert(right_lines, line:sub(2))
-      line_left = line_left + 1
-      line_right = line_right + 1
+      buf_line_left = buf_line_left + 1
+      buf_line_right = buf_line_right + 1
+      file_line_left = file_line_left + 1
+      file_line_right = file_line_right + 1
+      left_line_map[buf_line_left] = file_line_left
+      right_line_map[buf_line_right] = file_line_right
     elseif not line:match("^diff") and not line:match("^index") and not line:match("^%-%-%-") and not line:match("^%+%+%+") then
       table.insert(left_lines, line)
       table.insert(right_lines, line)
-      line_left = line_left + 1
-      line_right = line_right + 1
+      buf_line_left = buf_line_left + 1
+      buf_line_right = buf_line_right + 1
+      file_line_left = file_line_left + 1
+      file_line_right = file_line_right + 1
+      left_line_map[buf_line_left] = file_line_left
+      right_line_map[buf_line_right] = file_line_right
     end
   end
 
@@ -154,6 +179,13 @@ function M.show_side_by_side(file, diff)
   while #right_lines < #left_lines do
     table.insert(right_lines, "")
   end
+
+  -- Store line maps for comment positioning
+  M.current.line_maps = M.current.line_maps or {}
+  M.current.line_maps[file] = {
+    left = left_line_map,
+    right = right_line_map,
+  }
 
   -- Create left buffer (base)
   vim.cmd("tabnew")
