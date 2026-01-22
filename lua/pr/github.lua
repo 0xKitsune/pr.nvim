@@ -484,6 +484,20 @@ function M.add_suggestion(owner, repo, pr_number, path, start_line, end_line, su
   return M.add_comment(owner, repo, pr_number, path, end_line, body)
 end
 
+function M.delete_comment(owner, repo, comment_id)
+  local cmd = string.format(
+    "gh api repos/%s/%s/pulls/comments/%s --method DELETE 2>&1",
+    owner, repo, comment_id
+  )
+  local result = vim.fn.system(cmd)
+
+  if vim.v.shell_error ~= 0 then
+    return nil, "Failed to delete comment: " .. result
+  end
+
+  return true, nil
+end
+
 function M.reply_to_comment(owner, repo, pr_number, comment_id, body)
   local cmd = string.format(
     "gh api repos/%s/%s/pulls/%s/comments/%s/replies -f body=%q 2>&1",
@@ -523,6 +537,12 @@ function M.submit_review(owner, repo, pr_number, event, body)
   local result = vim.fn.system(cmd .. " 2>&1")
 
   if vim.v.shell_error ~= 0 then
+    -- Handle common errors with friendlier messages
+    if result:match("Can not approve your own pull request") then
+      return nil, "Cannot approve your own PR"
+    elseif result:match("Can not request changes on your own pull request") then
+      return nil, "Cannot request changes on your own PR"
+    end
     return nil, "Failed to submit review: " .. result
   end
 
