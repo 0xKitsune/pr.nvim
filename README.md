@@ -18,9 +18,9 @@ The plugin integrates with Telescope for file and PR picking, persists your revi
 
 ```lua
 {
-  dir = "~/path/to/pr.nvim",  -- local path
-  -- or use your repo:
-  -- "your-username/pr.nvim",
+  "0xKitsune/pr.nvim",
+  -- or use a local path:
+  -- dir = "~/path/to/pr.nvim",
   dependencies = {
     "nvim-telescope/telescope.nvim", -- optional
   },
@@ -34,7 +34,7 @@ The plugin integrates with Telescope for file and PR picking, persists your revi
 
 ```lua
 use {
-  "your-username/pr.nvim",
+  "0xKitsune/pr.nvim",
   requires = { "nvim-telescope/telescope.nvim" },
   config = function()
     require("pr").setup()
@@ -47,7 +47,7 @@ use {
 Clone the repository and add to your runtimepath:
 
 ```bash
-git clone https://github.com/your-username/pr.nvim ~/.local/share/nvim/site/pack/plugins/start/pr.nvim
+git clone https://github.com/0xKitsune/pr.nvim ~/.local/share/nvim/site/pack/plugins/start/pr.nvim
 ```
 
 Then in your config:
