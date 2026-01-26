@@ -1,6 +1,7 @@
 local M = {}
 
 M.current = nil
+M.full_file_mode = true  -- Show full file by default (like VS Code)
 
 local function format_date(iso_date)
   if not iso_date then return nil end
@@ -126,13 +127,266 @@ function M.open_file(file, force_refresh)
     end
   end
 
-  -- Get the diff for this specific file
-  local github = require("pr.github")
-  local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
-  local file_diff = M.extract_file_diff(full_diff, file)
+  if M.full_file_mode then
+    -- Full file mode: fetch complete base and head files
+    M.show_full_file_diff(file)
+  else
+    -- Diff-only mode: show only changed hunks
+    local github = require("pr.github")
+    local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
+    local file_diff = M.extract_file_diff(full_diff, file)
+    M.show_side_by_side(file, file_diff)
+  end
+end
 
-  -- Create side-by-side diff view
-  M.show_side_by_side(file, file_diff)
+-- Toggle between full file view and diff-only view
+function M.toggle_full_file_mode()
+  M.full_file_mode = not M.full_file_mode
+  local mode_name = M.full_file_mode and "Full file" or "Diff only"
+  vim.notify("Switched to: " .. mode_name, vim.log.levels.INFO)
+  
+  -- Refresh current file view
+  if M.current and M.current.file_index > 0 then
+    local file = M.current.files[M.current.file_index]
+    if file then
+      M.open_file(file, true)
+    end
+  end
+end
+
+-- Show full file content with diff highlighting
+function M.show_full_file_diff(file)
+  local github = require("pr.github")
+  local pr = M.current.pr
+  
+  -- Get base and head refs
+  local base_ref = pr.baseRefName or "main"
+  local head_ref = pr.headRefName or "HEAD"
+  
+  -- We need to fetch the head commit SHA for accurate file content
+  local async = require("pr.async")
+  local owner, repo = M.current.owner, M.current.repo
+  
+  -- First get the PR details for exact refs
+  local pr_cmd = string.format("gh pr view %s --repo %s/%s --json baseRefOid,headRefOid", M.current.number, owner, repo)
+  async.run_json(pr_cmd, function(refs, err)
+    if err or not refs then
+      vim.notify("Failed to get PR refs, falling back to diff view", vim.log.levels.WARN)
+      vim.schedule(function()
+        local full_diff = github.get_diff(owner, repo, M.current.number)
+        local file_diff = M.extract_file_diff(full_diff, file)
+        M.show_side_by_side(file, file_diff)
+      end)
+      return
+    end
+    
+    local base_sha = refs.baseRefOid
+    local head_sha = refs.headRefOid
+    
+    -- Fetch both file versions in parallel
+    local base_content = nil
+    local head_content = nil
+    local completed = 0
+    local base_error = false
+    local head_error = false
+    
+    local function on_complete()
+      completed = completed + 1
+      if completed < 2 then return end
+      
+      vim.schedule(function()
+        -- Handle new files (no base) or deleted files (no head)
+        if base_error and not head_error then
+          base_content = ""  -- New file
+        elseif head_error and not base_error then
+          head_content = ""  -- Deleted file
+        elseif base_error and head_error then
+          vim.notify("Failed to fetch file content, falling back to diff view", vim.log.levels.WARN)
+          local full_diff = github.get_diff(owner, repo, M.current.number)
+          local file_diff = M.extract_file_diff(full_diff, file)
+          M.show_side_by_side(file, file_diff)
+          return
+        end
+        
+        M.render_full_file_diff(file, base_content or "", head_content or "")
+      end)
+    end
+    
+    github.get_file_content(owner, repo, base_sha, file, function(content, fetch_err)
+      if fetch_err then
+        base_error = true
+      else
+        base_content = content
+      end
+      on_complete()
+    end)
+    
+    github.get_file_content(owner, repo, head_sha, file, function(content, fetch_err)
+      if fetch_err then
+        head_error = true
+      else
+        head_content = content
+      end
+      on_complete()
+    end)
+  end)
+end
+
+-- Compute LCS-based diff between two file contents and render side-by-side
+function M.render_full_file_diff(file, base_content, head_content)
+  local base_lines = vim.split(base_content, "\n")
+  local head_lines = vim.split(head_content, "\n")
+  
+  -- Remove trailing empty line if it's just from the split
+  if base_lines[#base_lines] == "" and base_content:sub(-1) ~= "\n" then
+    table.remove(base_lines)
+  end
+  if head_lines[#head_lines] == "" and head_content:sub(-1) ~= "\n" then
+    table.remove(head_lines)
+  end
+  
+  -- Compute diff using git diff algorithm (via temp files for accuracy)
+  local diff_info = M.compute_line_diff(base_lines, head_lines)
+  
+  -- Build display lines with proper alignment
+  local left_lines = {}
+  local right_lines = {}
+  local left_hl = {}
+  local right_hl = {}
+  local left_line_map = {}
+  local right_line_map = {}
+  
+  local left_idx = 1
+  local right_idx = 1
+  local display_line = 0
+  
+  while left_idx <= #base_lines or right_idx <= #head_lines do
+    display_line = display_line + 1
+    
+    local left_status = diff_info.base_status[left_idx]
+    local right_status = diff_info.head_status[right_idx]
+    
+    if left_status == "deleted" then
+      -- Line was deleted from base
+      table.insert(left_lines, base_lines[left_idx])
+      table.insert(right_lines, "")
+      left_line_map[display_line] = left_idx
+      table.insert(left_hl, { display_line, "DiffDelete" })
+      left_idx = left_idx + 1
+    elseif right_status == "added" then
+      -- Line was added in head
+      table.insert(left_lines, "")
+      table.insert(right_lines, head_lines[right_idx])
+      right_line_map[display_line] = right_idx
+      table.insert(right_hl, { display_line, "DiffAdd" })
+      right_idx = right_idx + 1
+    else
+      -- Unchanged or both present
+      table.insert(left_lines, base_lines[left_idx] or "")
+      table.insert(right_lines, head_lines[right_idx] or "")
+      left_line_map[display_line] = left_idx
+      right_line_map[display_line] = right_idx
+      left_idx = left_idx + 1
+      right_idx = right_idx + 1
+    end
+  end
+  
+  -- Store line maps
+  M.current.line_maps = M.current.line_maps or {}
+  M.current.line_maps[file] = {
+    left = left_line_map,
+    right = right_line_map,
+  }
+  
+  -- Render the buffers
+  M.close_buffers()
+  
+  -- Create left buffer (base)
+  vim.cmd("tabnew")
+  local left_buf = vim.api.nvim_get_current_buf()
+  local left_name = string.format("PR #%d BASE: %s", M.current.number, file)
+  pcall(vim.api.nvim_buf_set_name, left_buf, left_name)
+  vim.bo[left_buf].buftype = "nofile"
+  vim.bo[left_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(left_buf, 0, -1, false, left_lines)
+  vim.bo[left_buf].modifiable = false
+  M.apply_highlights(left_buf, left_hl)
+  M.set_filetype_from_ext(left_buf, file)
+  
+  -- Create right buffer (head)
+  vim.cmd("vsplit")
+  local right_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_win_set_buf(0, right_buf)
+  local right_name = string.format("PR #%d HEAD: %s", M.current.number, file)
+  pcall(vim.api.nvim_buf_set_name, right_buf, right_name)
+  vim.bo[right_buf].buftype = "nofile"
+  vim.bo[right_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(right_buf, 0, -1, false, right_lines)
+  vim.bo[right_buf].modifiable = false
+  M.apply_highlights(right_buf, right_hl)
+  M.set_filetype_from_ext(right_buf, file)
+  
+  -- Sync scrolling
+  vim.wo.scrollbind = true
+  vim.cmd("wincmd h")
+  vim.wo.scrollbind = true
+  vim.cmd("wincmd l")
+  
+  -- Set up keymaps
+  M.setup_keymaps(left_buf)
+  M.setup_keymaps(right_buf)
+  
+  -- Jump to first change
+  M.jump_to_first_change(right_hl)
+  
+  -- Show comments
+  require("pr.threads").show_all_comments()
+  
+  -- Show file path indicator
+  M.show_file_path(file)
+  
+  -- Update statusline
+  M.update_statusline()
+end
+
+-- Compute which lines are added/deleted using patience diff algorithm via git
+function M.compute_line_diff(base_lines, head_lines)
+  local result = {
+    base_status = {},  -- "deleted" or nil for each base line
+    head_status = {},  -- "added" or nil for each head line
+  }
+  
+  -- Use vim.diff for LCS-based diff (available in Neovim 0.9+)
+  local base_text = table.concat(base_lines, "\n")
+  local head_text = table.concat(head_lines, "\n")
+  
+  -- Add trailing newlines for proper diff
+  if #base_lines > 0 then base_text = base_text .. "\n" end
+  if #head_lines > 0 then head_text = head_text .. "\n" end
+  
+  local ok, diff_result = pcall(vim.diff, base_text, head_text, { result_type = "indices" })
+  
+  if not ok or not diff_result then
+    -- Fallback: mark nothing as changed
+    return result
+  end
+  
+  -- diff_result is a list of hunks: {base_start, base_count, head_start, head_count}
+  for _, hunk in ipairs(diff_result) do
+    local base_start, base_count, head_start, head_count = hunk[1], hunk[2], hunk[3], hunk[4]
+    
+    -- Mark deleted lines
+    for i = base_start, base_start + base_count - 1 do
+      result.base_status[i] = "deleted"
+    end
+    
+    -- Mark added lines
+    for i = head_start, head_start + head_count - 1 do
+      result.head_status[i] = "added"
+    end
+  end
+  
+  return result
 end
 
 function M.extract_file_diff(full_diff, file)
@@ -469,6 +723,7 @@ function M.setup_keymaps(buf)
   vim.keymap.set("n", "N", function() M.prev_change() end, vim.tbl_extend("force", opts, { desc = "Prev change" }))
   vim.keymap.set("n", "gd", function() M.open_actual_file() end, vim.tbl_extend("force", opts, { desc = "Open actual file at cursor" }))
   vim.keymap.set("n", "<C-]>", function() M.open_actual_file() end, vim.tbl_extend("force", opts, { desc = "Open actual file at cursor" }))
+  vim.keymap.set("n", "F", function() M.toggle_full_file_mode() end, vim.tbl_extend("force", opts, { desc = "Toggle full file / diff only" }))
 end
 
 function M.get_file_index(file)

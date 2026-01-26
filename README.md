@@ -76,6 +76,7 @@ In review mode:
 | Key | Action |
 |-----|--------|
 | `f` | Open file picker |
+| `F` | Toggle full file / diff only view |
 | `p` | Show PR info/description |
 | `c` | Add comment at cursor (Ctrl+S or Enter in normal mode to submit) |
 | `s` | Add suggestion (with code block) |
