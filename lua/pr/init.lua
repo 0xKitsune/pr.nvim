@@ -1,5 +1,7 @@
 local M = {}
 
+M.version = "0.1.0"
+
 M.config = {
   provider = "github", -- "github" | "gitlab"
   keymaps = {
