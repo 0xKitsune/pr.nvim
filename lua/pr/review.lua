@@ -2,6 +2,15 @@ local M = {}
 
 M.current = nil
 
+local function format_date(iso_date)
+  if not iso_date then return nil end
+  local year, month, day = iso_date:match("^(%d+)-(%d+)-(%d+)")
+  if year and month and day then
+    return string.format("%s-%s-%s", year, month, day)
+  end
+  return nil
+end
+
 
 -- Check if current branch has an open PR and open it
 function M.open_current_branch_pr(callback)
@@ -628,16 +637,20 @@ function M.show_pr_info()
   end
 
   local pr = M.current.pr
+  local date_str = format_date(pr.createdAt)
   local lines = {
     "# " .. (pr.title or "PR #" .. M.current.number),
     "",
     "**Author:** @" .. (pr.author and pr.author.login or "unknown"),
     "**Branch:** " .. (pr.headRefName or "?") .. " → " .. (pr.baseRefName or "?"),
     "**Files:** " .. #M.current.files,
-    "",
-    "---",
-    "",
   }
+  if date_str then
+    table.insert(lines, "**Created:** " .. date_str)
+  end
+  table.insert(lines, "")
+  table.insert(lines, "---")
+  table.insert(lines, "")
 
   -- Add body/description (clean up carriage returns)
   if pr.body and pr.body ~= "" then

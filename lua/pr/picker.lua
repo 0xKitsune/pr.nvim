@@ -1,5 +1,14 @@
 local M = {}
 
+local function format_date(iso_date)
+  if not iso_date then return nil end
+  local year, month, day = iso_date:match("^(%d+)-(%d+)-(%d+)")
+  if year and month and day then
+    return string.format("%s-%s-%s", year, month, day)
+  end
+  return nil
+end
+
 function M.list_prs(opts)
   opts = opts or {}
   local github = require("pr.github")
@@ -145,13 +154,17 @@ function M._telescope_prs(prs)
     title = "Description",
     define_preview = function(self, entry)
       local pr = entry.value
+      local date_str = format_date(pr.createdAt)
       local lines = {
         "# " .. pr.title,
         "",
         "**Author:** @" .. pr.author.login,
         "**PR:** #" .. pr.number,
-        "",
       }
+      if date_str then
+        table.insert(lines, "**Created:** " .. date_str)
+      end
+      table.insert(lines, "")
       
       -- Fetch full PR details for description
       local github = require("pr.github")

@@ -99,7 +99,7 @@ function M.prefetch()
   end
   
   -- Fetch full PR list with all details
-  local cmd = "gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests"
+  local cmd = "gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests,createdAt"
   async.run_json(cmd, function(prs, err)
     M.prefetch_in_progress = false
     if err or not prs then return end
@@ -195,7 +195,7 @@ function M.fetch_full_prs(filter, on_update)
     return
   end
   
-  local cmd = string.format("gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests %s", filter)
+  local cmd = string.format("gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests,createdAt %s", filter)
   
   async.run_json(cmd, function(prs, err)
     if err or not prs then return end
@@ -223,7 +223,7 @@ function M.fetch_fresh_prs(filter, callback, on_update)
   end
   
   -- Fast first load - basic info only
-  local cmd_fast = string.format("gh pr list --limit 50 --json number,title,author %s", filter)
+  local cmd_fast = string.format("gh pr list --limit 50 --json number,title,author,createdAt %s", filter)
   
   async.run_json(cmd_fast, function(prs, err)
     if err or not prs then
@@ -331,7 +331,7 @@ end
 
 function M.get_pr(owner, repo, pr_number, callback)
   local cmd = string.format(
-    "gh pr view %s --repo %s/%s --json number,title,body,author,files,comments,reviews,headRefName,baseRefName",
+    "gh pr view %s --repo %s/%s --json number,title,body,author,files,comments,reviews,headRefName,baseRefName,createdAt",
     pr_number, owner, repo
   )
   
