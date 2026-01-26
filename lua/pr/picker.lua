@@ -4,7 +4,7 @@ local function format_date(iso_date)
   if not iso_date then return nil end
   local year, month, day = iso_date:match("^(%d+)-(%d+)-(%d+)")
   if year and month and day then
-    return string.format("%s-%s-%s", year, month, day)
+    return string.format("%s-%s-%s", month, day, year)
   end
   return nil
 end
@@ -170,19 +170,34 @@ function M._telescope_prs(prs)
       local github = require("pr.github")
       local owner, repo = github.get_repo_info()
       if owner and repo then
-        local cmd = string.format("gh pr view %d --repo %s/%s --json body --jq .body", pr.number, owner, repo)
+        local cmd = string.format("gh pr view %d --repo %s/%s --json body,createdAt", pr.number, owner, repo)
         vim.fn.jobstart(cmd, {
           stdout_buffered = true,
           on_stdout = function(_, data)
             if data and data[1] and data[1] ~= "" then
               vim.schedule(function()
                 if vim.api.nvim_buf_is_valid(self.state.bufnr) then
-                  local desc_lines = vim.split(table.concat(data, "\n"), "\n")
-                  for _, line in ipairs(desc_lines) do
-                    table.insert(lines, line)
+                  local ok, pr_data = pcall(vim.json.decode, table.concat(data, "\n"))
+                  if ok and pr_data then
+                    local fetched_date = format_date(pr_data.createdAt)
+                    local new_lines = {
+                      "# " .. pr.title,
+                      "",
+                      "**Author:** @" .. pr.author.login,
+                      "**PR:** #" .. pr.number,
+                    }
+                    if fetched_date then
+                      table.insert(new_lines, "**Created:** " .. fetched_date)
+                    end
+                    table.insert(new_lines, "")
+                    if pr_data.body and pr_data.body ~= "" then
+                      for _, line in ipairs(vim.split(pr_data.body, "\n")) do
+                        table.insert(new_lines, line)
+                      end
+                    end
+                    vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, new_lines)
+                    vim.bo[self.state.bufnr].filetype = "markdown"
                   end
-                  vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
-                  vim.bo[self.state.bufnr].filetype = "markdown"
                 end
               end)
             end

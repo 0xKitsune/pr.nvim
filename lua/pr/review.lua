@@ -6,7 +6,7 @@ local function format_date(iso_date)
   if not iso_date then return nil end
   local year, month, day = iso_date:match("^(%d+)-(%d+)-(%d+)")
   if year and month and day then
-    return string.format("%s-%s-%s", year, month, day)
+    return string.format("%s-%s-%s", month, day, year)
   end
   return nil
 end
