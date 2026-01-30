@@ -55,13 +55,24 @@ function M.show_all_comments()
   local ns = vim.api.nvim_create_namespace("pr_threads")
   vim.api.nvim_buf_clear_namespace(right_buf, ns, 0, -1)
 
+  -- Get current file and its line maps
+  local current_file = review.current.files[review.current.file_index]
+  local line_maps = review.current.line_maps and review.current.line_maps[current_file]
+  local reverse_map = line_maps and line_maps.right_reverse
+
   -- Show all comments (API + pending)
   local file_threads = M.get_current_file_threads()
   
   for _, thread in ipairs(file_threads) do
     if thread.line then
+      -- Convert file line to display line using reverse map
+      local display_line = thread.line
+      if reverse_map and reverse_map[thread.line] then
+        display_line = reverse_map[thread.line]
+      end
+      
       pcall(function()
-        vim.api.nvim_buf_set_extmark(right_buf, ns, thread.line - 1, 0, {
+        vim.api.nvim_buf_set_extmark(right_buf, ns, display_line - 1, 0, {
           sign_text = thread.pending and "📝" or "💬",
           sign_hl_group = thread.pending and "DiagnosticWarn" or "DiagnosticInfo",
         })
@@ -71,12 +82,24 @@ function M.show_all_comments()
 end
 
 function M.get_thread_at_cursor()
-  local line = vim.api.nvim_win_get_cursor(0)[1]
+  local display_line = vim.api.nvim_win_get_cursor(0)[1]
   local file_threads = M.get_current_file_threads()
   
+  -- Get reverse map to convert file lines to display lines for comparison
+  local review = require("pr.review")
+  local current_file = review.current and review.current.files[review.current.file_index]
+  local line_maps = review.current and review.current.line_maps and review.current.line_maps[current_file]
+  local reverse_map = line_maps and line_maps.right_reverse
+  
   for _, thread in ipairs(file_threads) do
-    if thread.line == line then
-      return thread
+    if thread.line then
+      local thread_display_line = thread.line
+      if reverse_map and reverse_map[thread.line] then
+        thread_display_line = reverse_map[thread.line]
+      end
+      if thread_display_line == display_line then
+        return thread
+      end
     end
   end
   return nil
@@ -89,9 +112,19 @@ function M.open_thread_at_cursor()
   else
     local file_threads = M.get_current_file_threads()
     if #file_threads > 0 then
+      -- Get reverse map to show display lines (not file lines)
+      local review = require("pr.review")
+      local current_file = review.current and review.current.files[review.current.file_index]
+      local line_maps = review.current and review.current.line_maps and review.current.line_maps[current_file]
+      local reverse_map = line_maps and line_maps.right_reverse
+      
       local lines = {}
       for _, t in ipairs(file_threads) do
-        table.insert(lines, tostring(t.line))
+        local display_line = t.line
+        if reverse_map and reverse_map[t.line] then
+          display_line = reverse_map[t.line]
+        end
+        table.insert(lines, tostring(display_line))
       end
       vim.notify("No comment on this line. Comments on lines: " .. table.concat(lines, ", "), vim.log.levels.INFO)
     else
@@ -162,9 +195,21 @@ function M.prev()
   M.show_thread_popup(thread)
 end
 
-function M.jump_to_line(line)
-  if not line then return end
-  pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
+function M.jump_to_line(file_line)
+  if not file_line then return end
+  
+  -- Convert file line to display line using reverse map
+  local review = require("pr.review")
+  local current_file = review.current and review.current.files[review.current.file_index]
+  local line_maps = review.current and review.current.line_maps and review.current.line_maps[current_file]
+  local reverse_map = line_maps and line_maps.right_reverse
+  
+  local display_line = file_line
+  if reverse_map and reverse_map[file_line] then
+    display_line = reverse_map[file_line]
+  end
+  
+  pcall(vim.api.nvim_win_set_cursor, 0, { display_line, 0 })
 end
 
 function M.goto_thread(index)
