@@ -272,6 +272,7 @@ function M.render_full_file_diff(file, base_content, head_content)
   local diff_info = M.compute_line_diff(base_lines, head_lines)
   
   -- Build display lines with proper alignment
+  -- Strategy: pair up deletions with additions in the same hunk (no gaps)
   local left_lines = {}
   local right_lines = {}
   local left_hl = {}
@@ -286,29 +287,62 @@ function M.render_full_file_diff(file, base_content, head_content)
   local display_line = 0
   
   while left_idx <= #base_lines or right_idx <= #head_lines do
-    display_line = display_line + 1
-    
     local left_status = diff_info.base_status[left_idx]
     local right_status = diff_info.head_status[right_idx]
     
-    if left_idx <= #base_lines and left_status == "deleted" then
-      -- Line was deleted from base
-      table.insert(left_lines, base_lines[left_idx])
-      table.insert(right_lines, "")
-      left_line_map[display_line] = left_idx
-      left_reverse_map[left_idx] = display_line
-      table.insert(left_hl, { display_line, "DiffDelete" })
-      left_idx = left_idx + 1
-    elseif right_idx <= #head_lines and right_status == "added" then
-      -- Line was added in head
-      table.insert(left_lines, "")
-      table.insert(right_lines, head_lines[right_idx])
-      right_line_map[display_line] = right_idx
-      right_reverse_map[right_idx] = display_line
-      table.insert(right_hl, { display_line, "DiffAdd" })
-      right_idx = right_idx + 1
+    -- Check if we're entering a change hunk (deletions followed by additions)
+    if (left_idx <= #base_lines and left_status == "deleted") or 
+       (right_idx <= #head_lines and right_status == "added") then
+      -- Collect all consecutive deletions
+      local deleted_lines = {}
+      while left_idx <= #base_lines and diff_info.base_status[left_idx] == "deleted" do
+        table.insert(deleted_lines, { idx = left_idx, text = base_lines[left_idx] })
+        left_idx = left_idx + 1
+      end
+      
+      -- Collect all consecutive additions
+      local added_lines = {}
+      while right_idx <= #head_lines and diff_info.head_status[right_idx] == "added" do
+        table.insert(added_lines, { idx = right_idx, text = head_lines[right_idx] })
+        right_idx = right_idx + 1
+      end
+      
+      -- Pair them up: show deletion on left, addition on right (same row)
+      local max_len = math.max(#deleted_lines, #added_lines)
+      for i = 1, max_len do
+        display_line = display_line + 1
+        local del = deleted_lines[i]
+        local add = added_lines[i]
+        
+        if del and add then
+          -- Both deleted and added - show side by side
+          table.insert(left_lines, del.text)
+          table.insert(right_lines, add.text)
+          left_line_map[display_line] = del.idx
+          right_line_map[display_line] = add.idx
+          left_reverse_map[del.idx] = display_line
+          right_reverse_map[add.idx] = display_line
+          table.insert(left_hl, { display_line, "DiffDelete" })
+          table.insert(right_hl, { display_line, "DiffAdd" })
+        elseif del then
+          -- Only deletion (more deletions than additions)
+          table.insert(left_lines, del.text)
+          table.insert(right_lines, "")
+          left_line_map[display_line] = del.idx
+          left_reverse_map[del.idx] = display_line
+          table.insert(left_hl, { display_line, "DiffDelete" })
+        else
+          -- Only addition (more additions than deletions)
+          table.insert(left_lines, "")
+          table.insert(right_lines, add.text)
+          right_line_map[display_line] = add.idx
+          right_reverse_map[add.idx] = display_line
+          table.insert(right_hl, { display_line, "DiffAdd" })
+        end
+      end
     elseif left_idx <= #base_lines and right_idx <= #head_lines then
       -- Unchanged - both present
+      display_line = display_line + 1
       table.insert(left_lines, base_lines[left_idx])
       table.insert(right_lines, head_lines[right_idx])
       left_line_map[display_line] = left_idx
@@ -318,7 +352,8 @@ function M.render_full_file_diff(file, base_content, head_content)
       left_idx = left_idx + 1
       right_idx = right_idx + 1
     elseif left_idx <= #base_lines then
-      -- Only base has remaining lines (deleted at end)
+      -- Only base has remaining lines (shouldn't happen with proper diff)
+      display_line = display_line + 1
       table.insert(left_lines, base_lines[left_idx])
       table.insert(right_lines, "")
       left_line_map[display_line] = left_idx
@@ -326,7 +361,8 @@ function M.render_full_file_diff(file, base_content, head_content)
       table.insert(left_hl, { display_line, "DiffDelete" })
       left_idx = left_idx + 1
     else
-      -- Only head has remaining lines (added at end)
+      -- Only head has remaining lines (shouldn't happen with proper diff)
+      display_line = display_line + 1
       table.insert(left_lines, "")
       table.insert(right_lines, head_lines[right_idx])
       right_line_map[display_line] = right_idx

@@ -474,12 +474,12 @@ local function decode_base64(encoded)
 end
 
 function M.get_file_content(owner, repo, ref, path, callback)
-  -- URL-encode the path for files with special characters  
-  local encoded_path = path:gsub(" ", "%%20"):gsub("#", "%%23"):gsub("%%", "%%%%")
-  
   -- Use raw.githubusercontent.com directly - most reliable for any file size
-  local raw_url = string.format("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, ref, path)
-  local raw_cmd = string.format("curl -sL -H 'Authorization: token '$(gh auth token) %q 2>&1", raw_url)
+  -- URL-encode path components that might have special chars
+  local encoded_path = path:gsub(" ", "%%20"):gsub("#", "%%23")
+  local raw_url = string.format("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, ref, encoded_path)
+  -- Use double quotes for proper token interpolation
+  local raw_cmd = string.format('curl -sL -H "Authorization: token $(gh auth token)" %q 2>&1', raw_url)
   
   if callback then
     async.run(raw_cmd, function(result, err)
