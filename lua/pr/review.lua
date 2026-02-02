@@ -1148,11 +1148,6 @@ function M.submit(event, body)
   
   local ok, err = true, nil
   if not skip_review then
-    -- For "comment" with no body and no inline comments, require a body
-    if event == "comment" and (not body or body == "") then
-      vim.notify("Comment review requires either inline comments or a review body", vim.log.levels.WARN)
-      return
-    end
     ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
   end
   

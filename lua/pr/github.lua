@@ -552,11 +552,13 @@ function M.submit_review(owner, repo, pr_number, event, body)
     return nil, "Invalid review event: " .. event
   end
   
-  local cmd = string.format("gh pr review %s --repo %s/%s %s", pr_number, owner, repo, flag)
-
-  -- Body is always optional - inline comments count as review content
+  -- gh CLI requires a body for --comment and --request-changes
+  if (event == "comment" or event == "request_changes") and (not body or body == "") then
+    return nil, string.format("%s review requires a body", event == "comment" and "Comment" or "Request changes")
+  end
   
-  -- Only add body if provided (optional for approve/request_changes)
+  local cmd = string.format("gh pr review %s --repo %s/%s %s", pr_number, owner, repo, flag)
+  
   if body and body ~= "" then
     cmd = cmd .. string.format(" --body %q", body)
   end
