@@ -125,17 +125,20 @@ function M.open_file(file, force_refresh)
       M.update_statusline()
       return
     end
+  else
+    -- Force refresh: close current tab's buffers before re-rendering in same tab
+    M.close_buffers()
   end
 
   if M.full_file_mode then
     -- Full file mode: fetch complete base and head files
-    M.show_full_file_diff(file)
+    M.show_full_file_diff(file, force_refresh)
   else
     -- Diff-only mode: show only changed hunks
     local github = require("pr.github")
     local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
     local file_diff = M.extract_file_diff(full_diff, file)
-    M.show_side_by_side(file, file_diff)
+    M.show_side_by_side(file, file_diff, force_refresh)
   end
 end
 
@@ -155,7 +158,8 @@ function M.toggle_full_file_mode()
 end
 
 -- Show full file content with diff highlighting
-function M.show_full_file_diff(file)
+-- reuse_tab: if true, don't create a new tab (for mode toggle)
+function M.show_full_file_diff(file, reuse_tab)
   -- Check for binary files - fall back to diff view
   local binary_exts = { "png", "jpg", "jpeg", "gif", "ico", "svg", "pdf", "zip", "tar", "gz", "woff", "woff2", "ttf", "eot", "mp3", "mp4", "webm", "ogg", "wav" }
   local ext = file:match("%.([^%.]+)$")
@@ -167,7 +171,7 @@ function M.show_full_file_diff(file)
         local github = require("pr.github")
         local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
         local file_diff = M.extract_file_diff(full_diff, file)
-        M.show_side_by_side(file, file_diff)
+        M.show_side_by_side(file, file_diff, reuse_tab)
         return
       end
     end
@@ -192,7 +196,7 @@ function M.show_full_file_diff(file)
       vim.schedule(function()
         local full_diff = github.get_diff(owner, repo, M.current.number)
         local file_diff = M.extract_file_diff(full_diff, file)
-        M.show_side_by_side(file, file_diff)
+        M.show_side_by_side(file, file_diff, reuse_tab)
       end)
       return
     end
@@ -221,11 +225,11 @@ function M.show_full_file_diff(file)
           vim.notify("Failed to fetch file content, falling back to diff view", vim.log.levels.WARN)
           local full_diff = github.get_diff(owner, repo, M.current.number)
           local file_diff = M.extract_file_diff(full_diff, file)
-          M.show_side_by_side(file, file_diff)
+          M.show_side_by_side(file, file_diff, reuse_tab)
           return
         end
         
-        M.render_full_file_diff(file, base_content or "", head_content or "")
+        M.render_full_file_diff(file, base_content or "", head_content or "", reuse_tab)
       end)
     end
     
@@ -250,7 +254,8 @@ function M.show_full_file_diff(file)
 end
 
 -- Compute LCS-based diff between two file contents and render side-by-side
-function M.render_full_file_diff(file, base_content, head_content)
+-- reuse_tab: if true, render in current tab instead of creating new one
+function M.render_full_file_diff(file, base_content, head_content, reuse_tab)
   local base_lines = vim.split(base_content, "\n")
   local head_lines = vim.split(head_content, "\n")
   
@@ -381,11 +386,10 @@ function M.render_full_file_diff(file, base_content, head_content)
     right_reverse = right_reverse_map,
   }
   
-  -- Render the buffers
-  M.close_buffers()
-  
-  -- Create left buffer (base)
-  vim.cmd("tabnew")
+  -- Create a new tab for this file (unless reusing current tab for mode toggle)
+  if not reuse_tab then
+    vim.cmd("tabnew")
+  end
   local left_buf = vim.api.nvim_get_current_buf()
   local left_name = string.format("PR #%d BASE: %s", M.current.number, file)
   pcall(vim.api.nvim_buf_set_name, left_buf, left_name)
@@ -430,8 +434,10 @@ function M.render_full_file_diff(file, base_content, head_content)
   -- Jump to first change
   M.jump_to_first_change(right_hl)
   
-  -- Show comments
-  require("pr.threads").show_all_comments()
+  -- Show comments and reset thread navigation index for new file
+  local threads = require("pr.threads")
+  threads.file_thread_index = 0
+  threads.show_all_comments()
   
   -- Show file path indicator
   M.show_file_path(file)
@@ -520,10 +526,8 @@ function M.extract_file_diff(full_diff, file)
   return table.concat(result, "\n")
 end
 
-function M.show_side_by_side(file, diff)
-  -- Close existing review buffers
-  M.close_buffers()
-
+-- reuse_tab: if true, render in current tab instead of creating new one
+function M.show_side_by_side(file, diff, reuse_tab)
   local lines = vim.split(diff, "\n")
   local left_lines = {}   -- base (deletions)
   local right_lines = {}  -- head (additions)
@@ -609,7 +613,9 @@ function M.show_side_by_side(file, diff)
   }
 
   -- Create left buffer (base)
-  vim.cmd("tabnew")
+  if not reuse_tab then
+    vim.cmd("tabnew")
+  end
   local left_buf = vim.api.nvim_get_current_buf()
   local left_name = string.format("PR #%d BASE: %s", M.current.number, file)
   pcall(vim.api.nvim_buf_set_name, left_buf, left_name)
@@ -654,8 +660,10 @@ function M.show_side_by_side(file, diff)
   -- Jump to first change
   M.jump_to_first_change(right_hl)
 
-  -- Show comments on the right side
-  require("pr.threads").show_all_comments()
+  -- Show comments and reset thread navigation index for new file
+  local threads = require("pr.threads")
+  threads.file_thread_index = 0
+  threads.show_all_comments()
 
   -- Show file path indicator
   M.show_file_path(file)
@@ -1173,6 +1181,26 @@ function M.toggle_diff()
 end
 
 function M.close_buffers()
+  -- Only close PR buffers in the current tab, not all tabs
+  local current_tab = vim.api.nvim_get_current_tabpage()
+  local wins = vim.api.nvim_tabpage_list_wins(current_tab)
+  local bufs_to_delete = {}
+  
+  for _, win in ipairs(wins) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("PR #%d+") then
+      bufs_to_delete[buf] = true
+    end
+  end
+  
+  for buf, _ in pairs(bufs_to_delete) do
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end
+end
+
+function M.close_all_pr_buffers()
+  -- Close ALL PR buffers across all tabs (used when closing entire review)
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     local name = vim.api.nvim_buf_get_name(buf)
     if name:match("PR #%d+") then
@@ -1252,9 +1280,31 @@ function M.close()
     require("pr.cache").save_review(M.current)
   end
   
-  M.close_buffers()
+  -- Collect PR tabs BEFORE deleting buffers
+  local tabs_to_close = {}
+  for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tabpage)) do
+      local buf = vim.api.nvim_win_get_buf(win)
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name:match("PR #%d+") then
+        table.insert(tabs_to_close, tabpage)
+        break
+      end
+    end
+  end
+  
+  -- Close ALL PR buffers
+  M.close_all_pr_buffers()
   M.current = nil
-  pcall(vim.cmd, "tabclose")
+  
+  -- Close all PR tabs
+  for _, tab in ipairs(tabs_to_close) do
+    if vim.api.nvim_tabpage_is_valid(tab) and #vim.api.nvim_list_tabpages() > 1 then
+      vim.api.nvim_set_current_tabpage(tab)
+      pcall(vim.cmd, "tabclose")
+    end
+  end
+  
   vim.notify("PR review closed", vim.log.levels.INFO)
 end
 

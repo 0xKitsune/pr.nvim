@@ -121,6 +121,11 @@ function M._open_comment_window(with_suggestion)
               return
             end
           end
+          
+          -- Handle multi-line selection where start line might not be in map
+          if not actual_start_line then
+            actual_start_line = actual_end_line
+          end
         end
       else
         vim.notify("Line map not available - try reopening the file", vim.log.levels.WARN)
