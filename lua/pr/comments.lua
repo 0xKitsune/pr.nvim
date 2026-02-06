@@ -100,8 +100,31 @@ function M._open_comment_window(with_suggestion)
           actual_start_line = line_map[start_line]
           
           if not actual_end_line then
-            vim.notify(string.format("Cannot comment on line %d - not part of the diff", end_line), vim.log.levels.ERROR)
-            return
+            -- This line doesn't exist in HEAD (deleted line) - cannot comment on it
+            -- Try to find nearest valid line in HEAD
+            local nearest_line = nil
+            local min_dist = math.huge
+            for display_ln, file_ln in pairs(line_map) do
+              local dist = math.abs(display_ln - end_line)
+              if dist < min_dist then
+                min_dist = dist
+                nearest_line = file_ln
+              end
+            end
+            
+            if nearest_line and min_dist <= 3 then
+              actual_end_line = nearest_line
+              actual_start_line = nearest_line
+              vim.notify(string.format("Line %d is deleted - commenting on nearest line %d", end_line, nearest_line), vim.log.levels.INFO)
+            else
+              vim.notify("Cannot comment on deleted lines - move to a line that exists in the new version", vim.log.levels.ERROR)
+              return
+            end
+          end
+          
+          -- Handle multi-line selection where start line might not be in map
+          if not actual_start_line then
+            actual_start_line = actual_end_line
           end
         end
       else
@@ -174,7 +197,7 @@ function M.get_current_file()
   return nil
 end
 
-function M.show_virtual_comment(line, preview)
+function M.show_virtual_comment(file_line, preview)
   -- Find the HEAD (right) buffer
   local right_buf = nil
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -187,9 +210,20 @@ function M.show_virtual_comment(line, preview)
   
   if not right_buf then return end
   
+  -- Convert file line to display line using reverse map
+  local review = require("pr.review")
+  local current_file = review.current and review.current.files[review.current.file_index]
+  local line_maps = review.current and review.current.line_maps and review.current.line_maps[current_file]
+  local reverse_map = line_maps and line_maps.right_reverse
+  
+  local display_line = file_line
+  if reverse_map and reverse_map[file_line] then
+    display_line = reverse_map[file_line]
+  end
+  
   local ns = vim.api.nvim_create_namespace("pr_pending_comments")
   pcall(function()
-    vim.api.nvim_buf_set_extmark(right_buf, ns, line - 1, 0, {
+    vim.api.nvim_buf_set_extmark(right_buf, ns, display_line - 1, 0, {
       sign_text = "💬",
       sign_hl_group = "Comment",
     })

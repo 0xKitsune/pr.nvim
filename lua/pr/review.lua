@@ -125,17 +125,20 @@ function M.open_file(file, force_refresh)
       M.update_statusline()
       return
     end
+  else
+    -- Force refresh: close current tab's buffers before re-rendering in same tab
+    M.close_buffers()
   end
 
   if M.full_file_mode then
     -- Full file mode: fetch complete base and head files
-    M.show_full_file_diff(file)
+    M.show_full_file_diff(file, force_refresh)
   else
     -- Diff-only mode: show only changed hunks
     local github = require("pr.github")
     local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
     local file_diff = M.extract_file_diff(full_diff, file)
-    M.show_side_by_side(file, file_diff)
+    M.show_side_by_side(file, file_diff, force_refresh)
   end
 end
 
@@ -155,7 +158,25 @@ function M.toggle_full_file_mode()
 end
 
 -- Show full file content with diff highlighting
-function M.show_full_file_diff(file)
+-- reuse_tab: if true, don't create a new tab (for mode toggle)
+function M.show_full_file_diff(file, reuse_tab)
+  -- Check for binary files - fall back to diff view
+  local binary_exts = { "png", "jpg", "jpeg", "gif", "ico", "svg", "pdf", "zip", "tar", "gz", "woff", "woff2", "ttf", "eot", "mp3", "mp4", "webm", "ogg", "wav" }
+  local ext = file:match("%.([^%.]+)$")
+  if ext then
+    ext = ext:lower()
+    for _, bin_ext in ipairs(binary_exts) do
+      if ext == bin_ext then
+        vim.notify("Binary file - showing diff headers only", vim.log.levels.INFO)
+        local github = require("pr.github")
+        local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
+        local file_diff = M.extract_file_diff(full_diff, file)
+        M.show_side_by_side(file, file_diff, reuse_tab)
+        return
+      end
+    end
+  end
+  
   local github = require("pr.github")
   local pr = M.current.pr
   
@@ -175,7 +196,7 @@ function M.show_full_file_diff(file)
       vim.schedule(function()
         local full_diff = github.get_diff(owner, repo, M.current.number)
         local file_diff = M.extract_file_diff(full_diff, file)
-        M.show_side_by_side(file, file_diff)
+        M.show_side_by_side(file, file_diff, reuse_tab)
       end)
       return
     end
@@ -204,11 +225,11 @@ function M.show_full_file_diff(file)
           vim.notify("Failed to fetch file content, falling back to diff view", vim.log.levels.WARN)
           local full_diff = github.get_diff(owner, repo, M.current.number)
           local file_diff = M.extract_file_diff(full_diff, file)
-          M.show_side_by_side(file, file_diff)
+          M.show_side_by_side(file, file_diff, reuse_tab)
           return
         end
         
-        M.render_full_file_diff(file, base_content or "", head_content or "")
+        M.render_full_file_diff(file, base_content or "", head_content or "", reuse_tab)
       end)
     end
     
@@ -233,76 +254,142 @@ function M.show_full_file_diff(file)
 end
 
 -- Compute LCS-based diff between two file contents and render side-by-side
-function M.render_full_file_diff(file, base_content, head_content)
+-- reuse_tab: if true, render in current tab instead of creating new one
+function M.render_full_file_diff(file, base_content, head_content, reuse_tab)
   local base_lines = vim.split(base_content, "\n")
   local head_lines = vim.split(head_content, "\n")
   
   -- Remove trailing empty line if it's just from the split
-  if base_lines[#base_lines] == "" and base_content:sub(-1) ~= "\n" then
+  if #base_lines > 0 and base_lines[#base_lines] == "" and base_content:sub(-1) ~= "\n" then
     table.remove(base_lines)
   end
-  if head_lines[#head_lines] == "" and head_content:sub(-1) ~= "\n" then
+  if #head_lines > 0 and head_lines[#head_lines] == "" and head_content:sub(-1) ~= "\n" then
     table.remove(head_lines)
+  end
+  
+  -- Handle empty files
+  if #base_lines == 0 and #head_lines == 0 then
+    base_lines = {""}
+    head_lines = {""}
   end
   
   -- Compute diff using git diff algorithm (via temp files for accuracy)
   local diff_info = M.compute_line_diff(base_lines, head_lines)
   
   -- Build display lines with proper alignment
+  -- Strategy: pair up deletions with additions in the same hunk (no gaps)
   local left_lines = {}
   local right_lines = {}
   local left_hl = {}
   local right_hl = {}
-  local left_line_map = {}
-  local right_line_map = {}
+  local left_line_map = {}   -- display_line -> file_line
+  local right_line_map = {}  -- display_line -> file_line
+  local left_reverse_map = {}  -- file_line -> display_line
+  local right_reverse_map = {} -- file_line -> display_line
   
   local left_idx = 1
   local right_idx = 1
   local display_line = 0
   
   while left_idx <= #base_lines or right_idx <= #head_lines do
-    display_line = display_line + 1
-    
     local left_status = diff_info.base_status[left_idx]
     local right_status = diff_info.head_status[right_idx]
     
-    if left_status == "deleted" then
-      -- Line was deleted from base
+    -- Check if we're entering a change hunk (deletions followed by additions)
+    if (left_idx <= #base_lines and left_status == "deleted") or 
+       (right_idx <= #head_lines and right_status == "added") then
+      -- Collect all consecutive deletions
+      local deleted_lines = {}
+      while left_idx <= #base_lines and diff_info.base_status[left_idx] == "deleted" do
+        table.insert(deleted_lines, { idx = left_idx, text = base_lines[left_idx] })
+        left_idx = left_idx + 1
+      end
+      
+      -- Collect all consecutive additions
+      local added_lines = {}
+      while right_idx <= #head_lines and diff_info.head_status[right_idx] == "added" do
+        table.insert(added_lines, { idx = right_idx, text = head_lines[right_idx] })
+        right_idx = right_idx + 1
+      end
+      
+      -- Pair them up: show deletion on left, addition on right (same row)
+      local max_len = math.max(#deleted_lines, #added_lines)
+      for i = 1, max_len do
+        display_line = display_line + 1
+        local del = deleted_lines[i]
+        local add = added_lines[i]
+        
+        if del and add then
+          -- Both deleted and added - show side by side
+          table.insert(left_lines, del.text)
+          table.insert(right_lines, add.text)
+          left_line_map[display_line] = del.idx
+          right_line_map[display_line] = add.idx
+          left_reverse_map[del.idx] = display_line
+          right_reverse_map[add.idx] = display_line
+          table.insert(left_hl, { display_line, "DiffDelete" })
+          table.insert(right_hl, { display_line, "DiffAdd" })
+        elseif del then
+          -- Only deletion (more deletions than additions)
+          table.insert(left_lines, del.text)
+          table.insert(right_lines, "")
+          left_line_map[display_line] = del.idx
+          left_reverse_map[del.idx] = display_line
+          table.insert(left_hl, { display_line, "DiffDelete" })
+        else
+          -- Only addition (more additions than deletions)
+          table.insert(left_lines, "")
+          table.insert(right_lines, add.text)
+          right_line_map[display_line] = add.idx
+          right_reverse_map[add.idx] = display_line
+          table.insert(right_hl, { display_line, "DiffAdd" })
+        end
+      end
+    elseif left_idx <= #base_lines and right_idx <= #head_lines then
+      -- Unchanged - both present
+      display_line = display_line + 1
+      table.insert(left_lines, base_lines[left_idx])
+      table.insert(right_lines, head_lines[right_idx])
+      left_line_map[display_line] = left_idx
+      right_line_map[display_line] = right_idx
+      left_reverse_map[left_idx] = display_line
+      right_reverse_map[right_idx] = display_line
+      left_idx = left_idx + 1
+      right_idx = right_idx + 1
+    elseif left_idx <= #base_lines then
+      -- Only base has remaining lines (shouldn't happen with proper diff)
+      display_line = display_line + 1
       table.insert(left_lines, base_lines[left_idx])
       table.insert(right_lines, "")
       left_line_map[display_line] = left_idx
+      left_reverse_map[left_idx] = display_line
       table.insert(left_hl, { display_line, "DiffDelete" })
       left_idx = left_idx + 1
-    elseif right_status == "added" then
-      -- Line was added in head
+    else
+      -- Only head has remaining lines (shouldn't happen with proper diff)
+      display_line = display_line + 1
       table.insert(left_lines, "")
       table.insert(right_lines, head_lines[right_idx])
       right_line_map[display_line] = right_idx
+      right_reverse_map[right_idx] = display_line
       table.insert(right_hl, { display_line, "DiffAdd" })
-      right_idx = right_idx + 1
-    else
-      -- Unchanged or both present
-      table.insert(left_lines, base_lines[left_idx] or "")
-      table.insert(right_lines, head_lines[right_idx] or "")
-      left_line_map[display_line] = left_idx
-      right_line_map[display_line] = right_idx
-      left_idx = left_idx + 1
       right_idx = right_idx + 1
     end
   end
   
-  -- Store line maps
+  -- Store line maps (both directions for comment display)
   M.current.line_maps = M.current.line_maps or {}
   M.current.line_maps[file] = {
     left = left_line_map,
     right = right_line_map,
+    left_reverse = left_reverse_map,
+    right_reverse = right_reverse_map,
   }
   
-  -- Render the buffers
-  M.close_buffers()
-  
-  -- Create left buffer (base)
-  vim.cmd("tabnew")
+  -- Create a new tab for this file (unless reusing current tab for mode toggle)
+  if not reuse_tab then
+    vim.cmd("tabnew")
+  end
   local left_buf = vim.api.nvim_get_current_buf()
   local left_name = string.format("PR #%d BASE: %s", M.current.number, file)
   pcall(vim.api.nvim_buf_set_name, left_buf, left_name)
@@ -326,10 +413,18 @@ function M.render_full_file_diff(file, base_content, head_content)
   M.apply_highlights(right_buf, right_hl)
   M.set_filetype_from_ext(right_buf, file)
   
-  -- Sync scrolling
-  vim.wo.scrollbind = true
+  -- Sync scrolling (we're currently in right window after vsplit)
+  local right_win = vim.api.nvim_get_current_win()
   vim.cmd("wincmd h")
-  vim.wo.scrollbind = true
+  local left_win = vim.api.nvim_get_current_win()
+  
+  -- Set scrollbind on both windows
+  vim.wo[left_win].scrollbind = true
+  vim.wo[left_win].cursorbind = true
+  vim.wo[right_win].scrollbind = true
+  vim.wo[right_win].cursorbind = true
+  
+  -- Return to right window for navigation
   vim.cmd("wincmd l")
   
   -- Set up keymaps
@@ -339,8 +434,10 @@ function M.render_full_file_diff(file, base_content, head_content)
   -- Jump to first change
   M.jump_to_first_change(right_hl)
   
-  -- Show comments
-  require("pr.threads").show_all_comments()
+  -- Show comments and reset thread navigation index for new file
+  local threads = require("pr.threads")
+  threads.file_thread_index = 0
+  threads.show_all_comments()
   
   -- Show file path indicator
   M.show_file_path(file)
@@ -355,6 +452,23 @@ function M.compute_line_diff(base_lines, head_lines)
     base_status = {},  -- "deleted" or nil for each base line
     head_status = {},  -- "added" or nil for each head line
   }
+  
+  -- Handle edge cases: new file or deleted file
+  if #base_lines == 0 or (#base_lines == 1 and base_lines[1] == "") then
+    -- New file - all head lines are added
+    for i = 1, #head_lines do
+      result.head_status[i] = "added"
+    end
+    return result
+  end
+  
+  if #head_lines == 0 or (#head_lines == 1 and head_lines[1] == "") then
+    -- Deleted file - all base lines are deleted
+    for i = 1, #base_lines do
+      result.base_status[i] = "deleted"
+    end
+    return result
+  end
   
   -- Use vim.diff for LCS-based diff (available in Neovim 0.9+)
   local base_text = table.concat(base_lines, "\n")
@@ -412,10 +526,8 @@ function M.extract_file_diff(full_diff, file)
   return table.concat(result, "\n")
 end
 
-function M.show_side_by_side(file, diff)
-  -- Close existing review buffers
-  M.close_buffers()
-
+-- reuse_tab: if true, render in current tab instead of creating new one
+function M.show_side_by_side(file, diff, reuse_tab)
   local lines = vim.split(diff, "\n")
   local left_lines = {}   -- base (deletions)
   local right_lines = {}  -- head (additions)
@@ -425,6 +537,9 @@ function M.show_side_by_side(file, diff)
   -- Maps: buffer line number -> actual file line number
   local left_line_map = {}
   local right_line_map = {}
+  -- Reverse maps: file line number -> buffer line number (for comment display)
+  local left_reverse_map = {}
+  local right_reverse_map = {}
 
   local buf_line_left = 0
   local buf_line_right = 0
@@ -446,12 +561,14 @@ function M.show_side_by_side(file, diff)
       buf_line_left = buf_line_left + 1
       file_line_left = file_line_left + 1
       left_line_map[buf_line_left] = file_line_left
+      left_reverse_map[file_line_left] = buf_line_left
       table.insert(left_hl, { buf_line_left, "DiffDelete" })
     elseif line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
       table.insert(right_lines, line:sub(2))
       buf_line_right = buf_line_right + 1
       file_line_right = file_line_right + 1
       right_line_map[buf_line_right] = file_line_right
+      right_reverse_map[file_line_right] = buf_line_right
       table.insert(right_hl, { buf_line_right, "DiffAdd" })
     elseif line:sub(1, 1) == " " then
       table.insert(left_lines, line:sub(2))
@@ -462,6 +579,8 @@ function M.show_side_by_side(file, diff)
       file_line_right = file_line_right + 1
       left_line_map[buf_line_left] = file_line_left
       right_line_map[buf_line_right] = file_line_right
+      left_reverse_map[file_line_left] = buf_line_left
+      right_reverse_map[file_line_right] = buf_line_right
     elseif not line:match("^diff") and not line:match("^index") and not line:match("^%-%-%-") and not line:match("^%+%+%+") then
       table.insert(left_lines, line)
       table.insert(right_lines, line)
@@ -471,6 +590,8 @@ function M.show_side_by_side(file, diff)
       file_line_right = file_line_right + 1
       left_line_map[buf_line_left] = file_line_left
       right_line_map[buf_line_right] = file_line_right
+      left_reverse_map[file_line_left] = buf_line_left
+      right_reverse_map[file_line_right] = buf_line_right
     end
   end
 
@@ -487,10 +608,14 @@ function M.show_side_by_side(file, diff)
   M.current.line_maps[file] = {
     left = left_line_map,
     right = right_line_map,
+    left_reverse = left_reverse_map,
+    right_reverse = right_reverse_map,
   }
 
   -- Create left buffer (base)
-  vim.cmd("tabnew")
+  if not reuse_tab then
+    vim.cmd("tabnew")
+  end
   local left_buf = vim.api.nvim_get_current_buf()
   local left_name = string.format("PR #%d BASE: %s", M.current.number, file)
   pcall(vim.api.nvim_buf_set_name, left_buf, left_name)
@@ -514,10 +639,18 @@ function M.show_side_by_side(file, diff)
   M.apply_highlights(right_buf, right_hl)
   M.set_filetype_from_ext(right_buf, file)
 
-  -- Sync scrolling
-  vim.wo.scrollbind = true
+  -- Sync scrolling (we're currently in right window after vsplit)
+  local right_win = vim.api.nvim_get_current_win()
   vim.cmd("wincmd h")
-  vim.wo.scrollbind = true
+  local left_win = vim.api.nvim_get_current_win()
+  
+  -- Set scrollbind on both windows
+  vim.wo[left_win].scrollbind = true
+  vim.wo[left_win].cursorbind = true
+  vim.wo[right_win].scrollbind = true
+  vim.wo[right_win].cursorbind = true
+  
+  -- Return to right window for navigation
   vim.cmd("wincmd l")
 
   -- Set up keymaps
@@ -527,8 +660,10 @@ function M.show_side_by_side(file, diff)
   -- Jump to first change
   M.jump_to_first_change(right_hl)
 
-  -- Show comments on the right side
-  require("pr.threads").show_all_comments()
+  -- Show comments and reset thread navigation index for new file
+  local threads = require("pr.threads")
+  threads.file_thread_index = 0
+  threads.show_all_comments()
 
   -- Show file path indicator
   M.show_file_path(file)
@@ -685,12 +820,22 @@ function M.apply_highlights(buf, highlights)
 end
 
 function M.set_filetype_from_ext(buf, file)
+  -- Use Neovim's built-in filetype detection first
+  local ft = vim.filetype.match({ filename = file })
+  if ft then
+    vim.bo[buf].filetype = ft
+    return
+  end
+  
+  -- Fallback to manual mapping for edge cases
   local ext = file:match("%.([^%.]+)$")
   local ft_map = {
     lua = "lua", rs = "rust", ts = "typescript", js = "javascript",
     py = "python", go = "go", rb = "ruby", tsx = "typescriptreact",
     jsx = "javascriptreact", json = "json", yaml = "yaml", yml = "yaml",
     md = "markdown", sh = "bash", toml = "toml", sol = "solidity",
+    c = "c", cpp = "cpp", h = "c", hpp = "cpp", css = "css", scss = "scss",
+    html = "html", vue = "vue", svelte = "svelte", zig = "zig",
   }
   if ext and ft_map[ext] then
     vim.bo[buf].filetype = ft_map[ext]
@@ -746,7 +891,15 @@ function M.open_actual_file()
     return
   end
   
-  local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
+  local display_line = vim.api.nvim_win_get_cursor(0)[1]
+  
+  -- Convert display line to actual file line
+  local line_maps = M.current.line_maps and M.current.line_maps[file]
+  local line_map = line_maps and line_maps.right
+  local actual_line = display_line
+  if line_map and line_map[display_line] then
+    actual_line = line_map[display_line]
+  end
   
   -- Check if file exists in the working directory
   local full_path = vim.fn.getcwd() .. "/" .. file
@@ -758,8 +911,8 @@ function M.open_actual_file()
   -- Open in current window (so Ctrl+O works to go back)
   vim.cmd("edit " .. vim.fn.fnameescape(full_path))
   
-  -- Jump to the line
-  pcall(vim.api.nvim_win_set_cursor, 0, { cursor_line, 0 })
+  -- Jump to the actual file line
+  pcall(vim.api.nvim_win_set_cursor, 0, { actual_line, 0 })
   vim.cmd("normal! zz")
 end
 
@@ -1003,11 +1156,6 @@ function M.submit(event, body)
   
   local ok, err = true, nil
   if not skip_review then
-    -- For "comment" with no body and no inline comments, require a body
-    if event == "comment" and (not body or body == "") then
-      vim.notify("Comment review requires either inline comments or a review body", vim.log.levels.WARN)
-      return
-    end
     ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
   end
   
@@ -1033,6 +1181,26 @@ function M.toggle_diff()
 end
 
 function M.close_buffers()
+  -- Only close PR buffers in the current tab, not all tabs
+  local current_tab = vim.api.nvim_get_current_tabpage()
+  local wins = vim.api.nvim_tabpage_list_wins(current_tab)
+  local bufs_to_delete = {}
+  
+  for _, win in ipairs(wins) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    local name = vim.api.nvim_buf_get_name(buf)
+    if name:match("PR #%d+") then
+      bufs_to_delete[buf] = true
+    end
+  end
+  
+  for buf, _ in pairs(bufs_to_delete) do
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end
+end
+
+function M.close_all_pr_buffers()
+  -- Close ALL PR buffers across all tabs (used when closing entire review)
   local current_buf = vim.api.nvim_get_current_buf()
   local bufs_to_delete = {}
 
@@ -1131,9 +1299,31 @@ function M.close()
     require("pr.cache").save_review(M.current)
   end
   
-  M.close_buffers()
+  -- Collect PR tabs BEFORE deleting buffers
+  local tabs_to_close = {}
+  for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tabpage)) do
+      local buf = vim.api.nvim_win_get_buf(win)
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name:match("PR #%d+") then
+        table.insert(tabs_to_close, tabpage)
+        break
+      end
+    end
+  end
+  
+  -- Close ALL PR buffers
+  M.close_all_pr_buffers()
   M.current = nil
-  pcall(vim.cmd, "tabclose")
+  
+  -- Close all PR tabs
+  for _, tab in ipairs(tabs_to_close) do
+    if vim.api.nvim_tabpage_is_valid(tab) and #vim.api.nvim_list_tabpages() > 1 then
+      vim.api.nvim_set_current_tabpage(tab)
+      pcall(vim.cmd, "tabclose")
+    end
+  end
+  
   vim.notify("PR review closed", vim.log.levels.INFO)
 end
 

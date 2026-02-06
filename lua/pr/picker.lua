@@ -332,10 +332,10 @@ function M._telescope_files(files, current)
     finder = finders.new_table({
       results = files,
       entry_maker = function(file)
-        local status = current.reviewed[file] and "●" or "○"
         return {
           value = file,
           display = function()
+            local status = current.reviewed[file] and "●" or "○"
             return displayer({
               { status, current.reviewed[file] and "DiagnosticOk" or "Comment" },
               file,
@@ -386,10 +386,10 @@ function M._telescope_files(files, current)
         picker:refresh(finders.new_table({
           results = files,
           entry_maker = function(file)
-            local status = current.reviewed[file] and "●" or "○"
             return {
               value = file,
               display = function()
+                local status = current.reviewed[file] and "●" or "○"
                 return displayer({
                   { status, current.reviewed[file] and "DiagnosticOk" or "Comment" },
                   file,

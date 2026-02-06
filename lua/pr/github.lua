@@ -418,6 +418,7 @@ function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
   end
   
   -- Build the API command for review comments
+  -- Use subject_type=line to allow commenting on any line (not just diff context)
   local cmd
   if start_line and start_line < line then
     -- Multi-line comment
@@ -429,7 +430,8 @@ function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
       "--field line=%d " ..
       "--field start_line=%d " ..
       "--field side=RIGHT " ..
-      "--field start_side=RIGHT 2>&1",
+      "--field start_side=RIGHT " ..
+      "--field subject_type=line 2>&1",
       owner, repo, pr_number, body, path, commit_id, line, start_line
     )
   else
@@ -440,7 +442,8 @@ function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
       "--field path=%q " ..
       "--field commit_id=%s " ..
       "--field line=%d " ..
-      "--field side=RIGHT 2>&1",
+      "--field side=RIGHT " ..
+      "--field subject_type=line 2>&1",
       owner, repo, pr_number, body, path, commit_id, line
     )
   end
@@ -456,26 +459,50 @@ function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
   return true, nil
 end
 
+-- Helper to decode base64, using Neovim's built-in if available
+local function decode_base64(encoded)
+  local clean = encoded:gsub("%s+", "")
+  -- Try Neovim's built-in base64 decode (available in 0.10+)
+  if vim.base64 and vim.base64.decode then
+    local ok, decoded = pcall(vim.base64.decode, clean)
+    if ok then
+      return decoded
+    end
+  end
+  -- Fallback to shell command
+  return vim.fn.system("echo " .. vim.fn.shellescape(clean) .. " | base64 -d")
+end
+
 function M.get_file_content(owner, repo, ref, path, callback)
-  local cmd = string.format("gh api repos/%s/%s/contents/%s?ref=%s --jq .content 2>&1", 
-    owner, repo, path, ref)
+  -- Use raw.githubusercontent.com directly - most reliable for any file size
+  -- URL-encode path components that might have special chars
+  local encoded_path = path:gsub(" ", "%%20"):gsub("#", "%%23")
+  local raw_url = string.format("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, ref, encoded_path)
+  -- Use double quotes for proper token interpolation
+  local raw_cmd = string.format('curl -sL -H "Authorization: token $(gh auth token)" %q 2>&1', raw_url)
   
   if callback then
-    async.run(cmd, function(result, err)
-      if err or not result or result == "" then
-        callback(nil, err or "Failed to fetch file")
+    async.run(raw_cmd, function(result, err)
+      if err then
+        callback(nil, err)
         return
       end
-      -- Decode base64 content
-      local decoded = vim.fn.system("echo " .. vim.fn.shellescape(result:gsub("%s+", "")) .. " | base64 -d")
-      callback(decoded, nil)
+      -- Check for 404 or error
+      if not result or result == "" or result:match("^404:") or result:match("^Not Found") then
+        callback(nil, "File not found")
+        return
+      end
+      callback(result, nil)
     end)
   else
-    local result = vim.fn.system(cmd)
+    local result = vim.fn.system(raw_cmd)
     if vim.v.shell_error ~= 0 then
       return nil, result
     end
-    return vim.fn.system("echo " .. vim.fn.shellescape(result:gsub("%s+", "")) .. " | base64 -d"), nil
+    if not result or result == "" or result:match("^404:") or result:match("^Not Found") then
+      return nil, "File not found"
+    end
+    return result, nil
   end
 end
 
@@ -525,11 +552,13 @@ function M.submit_review(owner, repo, pr_number, event, body)
     return nil, "Invalid review event: " .. event
   end
   
-  local cmd = string.format("gh pr review %s --repo %s/%s %s", pr_number, owner, repo, flag)
-
-  -- Body is always optional - inline comments count as review content
+  -- gh CLI requires a body for --comment and --request-changes
+  if (event == "comment" or event == "request_changes") and (not body or body == "") then
+    return nil, string.format("%s review requires a body", event == "comment" and "Comment" or "Request changes")
+  end
   
-  -- Only add body if provided (optional for approve/request_changes)
+  local cmd = string.format("gh pr review %s --repo %s/%s %s", pr_number, owner, repo, flag)
+  
   if body and body ~= "" then
     cmd = cmd .. string.format(" --body %q", body)
   end
