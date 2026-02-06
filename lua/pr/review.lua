@@ -1033,9 +1033,28 @@ function M.toggle_diff()
 end
 
 function M.close_buffers()
+  local current_buf = vim.api.nvim_get_current_buf()
+  local bufs_to_delete = {}
+
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    local name = vim.api.nvim_buf_get_name(buf)
-    if name:match("PR #%d+") then
+    if vim.api.nvim_buf_is_valid(buf) then
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name:match("PR #%d+") then
+        table.insert(bufs_to_delete, buf)
+      end
+    end
+  end
+
+  if #bufs_to_delete == 0 then return end
+
+  local deleting_current = vim.tbl_contains(bufs_to_delete, current_buf)
+  if deleting_current then
+    local scratch = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_win_set_buf(0, scratch)
+  end
+
+  for _, buf in ipairs(bufs_to_delete) do
+    if vim.api.nvim_buf_is_valid(buf) then
       pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
   end
