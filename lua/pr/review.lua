@@ -1149,9 +1149,10 @@ function M.submit(event, body)
     end
   end
 
-  -- For "comment" review with no body, skip the review call if we had inline comments
+  -- For "comment" review with no body, skip the review call if we posted any inline comments
   -- (the inline comments ARE the review content)
-  local posted_comments = had_pending_comments and #failed_comments < #M.current.pending_comments
+  local posted_count = #M.current.pending_comments - #failed_comments
+  local posted_comments = had_pending_comments and posted_count > 0
   local skip_review = event == "comment" and (not body or body == "") and posted_comments
   
   local ok, err = true, nil
