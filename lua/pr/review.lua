@@ -125,6 +125,15 @@ function M.open_file(file, force_refresh)
       M.update_statusline()
       return
     end
+
+    -- Reuse any existing PR tab instead of creating a new one
+    local any_pr_tab = M.find_any_pr_tab()
+    if any_pr_tab then
+      vim.api.nvim_set_current_tabpage(any_pr_tab)
+      M.close_file_path_win()
+      M.close_buffers()
+      force_refresh = true
+    end
   else
     -- Force refresh: close current tab's buffers before re-rendering in same tab
     M.close_buffers()
@@ -1242,6 +1251,22 @@ end
 function M.find_existing_tab(file)
   if not M.current then return nil end
   local pattern = string.format("PR #%d.*%s$", M.current.number, file:gsub("%-", "%%-"):gsub("%.", "%%."))
+  
+  for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tabpage)) do
+      local buf = vim.api.nvim_win_get_buf(win)
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name:match(pattern) then
+        return tabpage
+      end
+    end
+  end
+  return nil
+end
+
+function M.find_any_pr_tab()
+  if not M.current then return nil end
+  local pattern = string.format("PR #%d", M.current.number)
   
   for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
     for _, win in ipairs(vim.api.nvim_tabpage_list_wins(tabpage)) do
