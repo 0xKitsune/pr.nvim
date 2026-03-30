@@ -78,7 +78,7 @@ In review mode:
 | `f` | Open file picker |
 | `F` | Toggle full file / diff only view |
 | `p` | Show PR info/description |
-| `c` | Add comment at cursor (Ctrl+S or Enter in normal mode to submit) |
+| `c` | Add comment at cursor (Enter or Ctrl+S in normal mode to submit) |
 | `s` | Add suggestion (with code block) |
 | `r` | Reply to thread |
 | `e` | Edit pending comment |

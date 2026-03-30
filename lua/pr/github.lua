@@ -91,26 +91,29 @@ function M.prefetch()
   if M.prefetch_in_progress then return end
   M.prefetch_in_progress = true
   
-  -- Fetch user first (in parallel concept, but we need it for status)
-  if not M.current_user then
-    async.run("gh api user --jq .login", function(username, _)
-      M.current_user = (username or ""):gsub("%s+", "")
+  -- Fetch user first, then PRs (need username for review status)
+  local function fetch_prs()
+    local cmd = "gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests,createdAt"
+    async.run_json(cmd, function(prs, err)
+      M.prefetch_in_progress = false
+      if err or not prs then return end
+      
+      for _, pr in ipairs(prs) do
+        pr.review_status = M.get_review_status(pr, M.current_user or "")
+      end
+      
+      M.pr_cache = prs
     end)
   end
   
-  -- Fetch full PR list with all details
-  local cmd = "gh pr list --limit 100 --json number,title,author,reviewDecision,reviews,reviewRequests,createdAt"
-  async.run_json(cmd, function(prs, err)
-    M.prefetch_in_progress = false
-    if err or not prs then return end
-    
-    -- Compute review status for each PR (user might not be ready yet, that's ok)
-    for _, pr in ipairs(prs) do
-      pr.review_status = M.get_review_status(pr, M.current_user or "")
-    end
-    
-    M.pr_cache = prs
-  end)
+  if not M.current_user then
+    async.run("gh api user --jq .login", function(username, _)
+      M.current_user = (username or ""):gsub("%s+", "")
+      fetch_prs()
+    end)
+  else
+    fetch_prs()
+  end
 end
 
 -- Cache for correct owner/repo casing
@@ -403,26 +406,58 @@ function M.get_comments(owner, repo, pr_number, callback)
   end
 end
 
-function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
+function M.add_comment(owner, repo, pr_number, path, line, body, start_line, callback)
   -- Validate line number
   if not line or line < 1 then
-    return nil, string.format("Invalid line number: %s", tostring(line))
+    local err = string.format("Invalid line number: %s", tostring(line))
+    if callback then callback(nil, err) else return nil, err end
+    return
   end
   
-  -- Get the head commit SHA for this PR
-  local sha_cmd = string.format("gh pr view %s --repo %s/%s --json headRefOid --jq .headRefOid", pr_number, owner, repo)
-  local commit_id = vim.fn.system(sha_cmd):gsub("%s+", "")
-  
-  if vim.v.shell_error ~= 0 or commit_id == "" then
-    return nil, "Failed to get commit SHA"
+  if callback then
+    -- Async mode
+    local sha_cmd = string.format("gh pr view %s --repo %s/%s --json headRefOid --jq .headRefOid", pr_number, owner, repo)
+    async.run(sha_cmd, function(commit_id, sha_err)
+      if sha_err or not commit_id or commit_id == "" then
+        callback(nil, "Failed to get commit SHA")
+        return
+      end
+      commit_id = commit_id:gsub("%s+", "")
+      
+      local cmd = M._build_comment_cmd(owner, repo, pr_number, path, line, body, start_line, commit_id)
+      async.run(cmd, function(result, err)
+        if err then
+          local err_msg = (result or err):match('"message":"([^"]+)"') or err
+          callback(nil, "Failed to add comment: " .. err_msg)
+        else
+          callback(true, nil)
+        end
+      end)
+    end)
+  else
+    -- Sync mode (legacy fallback)
+    local sha_cmd = string.format("gh pr view %s --repo %s/%s --json headRefOid --jq .headRefOid", pr_number, owner, repo)
+    local commit_id = vim.fn.system(sha_cmd):gsub("%s+", "")
+    
+    if vim.v.shell_error ~= 0 or commit_id == "" then
+      return nil, "Failed to get commit SHA"
+    end
+    
+    local cmd = M._build_comment_cmd(owner, repo, pr_number, path, line, body, start_line, commit_id)
+    local result = vim.fn.system(cmd .. " 2>&1")
+    
+    if vim.v.shell_error ~= 0 then
+      local err_msg = result:match('"message":"([^"]+)"') or result
+      return nil, "Failed to add comment: " .. err_msg
+    end
+    
+    return true, nil
   end
-  
-  -- Build the API command for review comments
-  -- Use subject_type=line to allow commenting on any line (not just diff context)
-  local cmd
+end
+
+function M._build_comment_cmd(owner, repo, pr_number, path, line, body, start_line, commit_id)
   if start_line and start_line < line then
-    -- Multi-line comment
-    cmd = string.format(
+    return string.format(
       "gh api repos/%s/%s/pulls/%s/comments --method POST " ..
       "--field body=%q " ..
       "--field path=%q " ..
@@ -431,32 +466,21 @@ function M.add_comment(owner, repo, pr_number, path, line, body, start_line)
       "--field start_line=%d " ..
       "--field side=RIGHT " ..
       "--field start_side=RIGHT " ..
-      "--field subject_type=line 2>&1",
+      "--field subject_type=line",
       owner, repo, pr_number, body, path, commit_id, line, start_line
     )
   else
-    -- Single line comment
-    cmd = string.format(
+    return string.format(
       "gh api repos/%s/%s/pulls/%s/comments --method POST " ..
       "--field body=%q " ..
       "--field path=%q " ..
       "--field commit_id=%s " ..
       "--field line=%d " ..
       "--field side=RIGHT " ..
-      "--field subject_type=line 2>&1",
+      "--field subject_type=line",
       owner, repo, pr_number, body, path, commit_id, line
     )
   end
-  
-  local result = vim.fn.system(cmd)
-
-  if vim.v.shell_error ~= 0 then
-    -- Try to parse error for better message
-    local err_msg = result:match('"message":"([^"]+)"') or result
-    return nil, "Failed to add comment: " .. err_msg
-  end
-
-  return true, nil
 end
 
 -- Helper to decode base64, using Neovim's built-in if available

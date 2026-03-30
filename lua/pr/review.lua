@@ -53,6 +53,17 @@ function M.open(pr_number, owner, repo)
   local github = require("pr.github")
   local cache = require("pr.cache")
 
+  -- Guard against opening the same PR twice
+  if M.current and M.current.number == pr_number then
+    local same_repo = (not owner or not repo) or 
+      (M.current.owner == owner and M.current.repo == repo)
+    if same_repo then
+      vim.notify(string.format("PR #%d is already open", pr_number), vim.log.levels.INFO)
+      require("pr.picker").list_files()
+      return
+    end
+  end
+
   if not owner or not repo then
     -- Use async version to get correct casing
     github.get_repo_info(function(o, r)
@@ -82,7 +93,7 @@ function M.open(pr_number, owner, repo)
       repo = repo,
       pr = pr,
       files = pr.files or {},
-      file_index = saved and saved.file_index or 0,
+      file_index = (saved and saved.file_index and saved.file_index > 0) and saved.file_index or 1,
       reviewed = saved and saved.reviewed or {},
       pending_comments = saved and saved.pending_comments or {},
     }
@@ -145,9 +156,23 @@ function M.open_file(file, force_refresh)
   else
     -- Diff-only mode: show only changed hunks
     local github = require("pr.github")
-    local full_diff = github.get_diff(M.current.owner, M.current.repo, M.current.number)
-    local file_diff = M.extract_file_diff(full_diff, file)
-    M.show_side_by_side(file, file_diff, force_refresh)
+    local cached_diff = require("pr.cache").get_diff(M.current.owner, M.current.repo, M.current.number)
+    if cached_diff then
+      local file_diff = M.extract_file_diff(cached_diff, file)
+      M.show_side_by_side(file, file_diff, force_refresh)
+    else
+      -- Diff not cached yet, fetch async
+      github.get_diff(M.current.owner, M.current.repo, M.current.number, function(full_diff)
+        if not full_diff then
+          vim.notify("Failed to fetch diff", vim.log.levels.ERROR)
+          return
+        end
+        vim.schedule(function()
+          local file_diff = M.extract_file_diff(full_diff, file)
+          M.show_side_by_side(file, file_diff, force_refresh)
+        end)
+      end)
+    end
   end
 end
 
@@ -518,10 +543,12 @@ function M.extract_file_diff(full_diff, file)
   local lines = vim.split(full_diff, "\n")
   local result = {}
   local in_file = false
+  local escaped = file:gsub("%-", "%%-"):gsub("%.", "%%.")
 
   for _, line in ipairs(lines) do
     if line:match("^diff %-%-git") then
-      if line:match(file:gsub("%-", "%%-"):gsub("%.", "%%.") .. "$") or line:match("b/" .. file:gsub("%-", "%%-"):gsub("%.", "%.")) then
+      -- Match exact file path: a/path b/path
+      if line:match("b/" .. escaped .. "$") then
         in_file = true
       else
         in_file = false
@@ -927,13 +954,15 @@ end
 
 function M.next_file()
   if not M.current or #M.current.files == 0 then return end
-  M.current.file_index = (M.current.file_index % #M.current.files) + 1
+  local idx = M.current.file_index or 0
+  M.current.file_index = (idx % #M.current.files) + 1
   M.open_file(M.current.files[M.current.file_index])
 end
 
 function M.prev_file()
   if not M.current or #M.current.files == 0 then return end
-  M.current.file_index = M.current.file_index - 1
+  local idx = M.current.file_index or 1
+  M.current.file_index = idx - 1
   if M.current.file_index < 1 then
     M.current.file_index = #M.current.files
   end
@@ -1021,7 +1050,7 @@ function M.show_help()
   local width = 36
   local height = #help
 
-  local win = vim.api.nvim_open_win(buf, false, {
+  local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
     row = vim.o.lines - height - 6,
     col = vim.o.columns - width - 4,
@@ -1031,20 +1060,25 @@ function M.show_help()
     border = "rounded",
     title = " ? ",
     title_pos = "center",
-    focusable = false,
   })
 
   vim.wo[win].winhl = "Normal:TelescopePromptNormal,FloatBorder:TelescopePromptBorder"
 
-  -- Close help with Esc or ?
   local function close_help()
     if vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_close(win, true)
     end
   end
 
-  vim.keymap.set("n", "<Esc>", close_help, { buffer = 0 })
-  vim.keymap.set("n", "?", close_help, { buffer = 0 })
+  vim.keymap.set("n", "<Esc>", close_help, { buffer = buf })
+  vim.keymap.set("n", "?", close_help, { buffer = buf })
+  vim.keymap.set("n", "q", close_help, { buffer = buf })
+  
+  vim.api.nvim_create_autocmd("BufLeave", {
+    buffer = buf,
+    once = true,
+    callback = close_help,
+  })
 end
 
 function M.show_pr_info()
@@ -1088,7 +1122,7 @@ function M.show_pr_info()
   local width = math.min(80, vim.o.columns - 10)
   local height = math.min(#lines + 2, vim.o.lines - 10)
 
-  local win = vim.api.nvim_open_win(buf, false, {
+  local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
     row = math.floor((vim.o.lines - height) / 2),
     col = math.floor((vim.o.columns - width) / 2),
@@ -1098,21 +1132,26 @@ function M.show_pr_info()
     border = "rounded",
     title = " PR #" .. M.current.number .. " ",
     title_pos = "center",
-    focusable = false,
   })
 
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
 
-  -- Close with p or Esc (from original buffer)
   local function close_info()
     if vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_close(win, true)
     end
   end
 
-  vim.keymap.set("n", "p", close_info, { buffer = 0 })
-  vim.keymap.set("n", "<Esc>", close_info, { buffer = 0 })
+  vim.keymap.set("n", "p", close_info, { buffer = buf })
+  vim.keymap.set("n", "<Esc>", close_info, { buffer = buf })
+  vim.keymap.set("n", "q", close_info, { buffer = buf })
+  
+  vim.api.nvim_create_autocmd("BufLeave", {
+    buffer = buf,
+    once = true,
+    callback = close_info,
+  })
 end
 
 function M.submit(event, body)
@@ -1141,40 +1180,63 @@ function M.submit(event, body)
   end
 
   local github = require("pr.github")
+  local pending = M.current.pending_comments
+  local total = #pending
   
-  -- Track if we had inline comments to post
-  local had_pending_comments = #M.current.pending_comments > 0
+  if total == 0 then
+    -- No inline comments, just submit the review
+    M._submit_review_call(event, body)
+    return
+  end
   
-  -- Post pending comments
+  -- Post pending comments asynchronously
+  vim.notify(string.format("Posting %d comments...", total), vim.log.levels.INFO)
+  
   local failed_comments = {}
-  for _, comment in ipairs(M.current.pending_comments) do
-    local ok, err = github.add_comment(
+  local completed = 0
+  
+  for _, comment in ipairs(pending) do
+    github.add_comment(
       M.current.owner, M.current.repo, M.current.number,
-      comment.path, comment.line, comment.body, comment.start_line
+      comment.path, comment.line, comment.body, comment.start_line,
+      function(ok, err)
+        completed = completed + 1
+        if not ok then
+          vim.notify("Failed to post comment: " .. (err or ""), vim.log.levels.ERROR)
+          table.insert(failed_comments, comment)
+        end
+        
+        if completed >= total then
+          -- All comments attempted, now submit review
+          vim.schedule(function()
+            local posted_count = total - #failed_comments
+            local posted_comments = posted_count > 0
+            local skip_review = event == "comment" and (not body or body == "") and posted_comments
+            
+            if skip_review then
+              M._finish_submit(event, failed_comments, true, nil)
+            else
+              M._submit_review_call(event, body, failed_comments)
+            end
+          end)
+        end
+      end
     )
-    if not ok then
-      vim.notify("Failed to post comment: " .. (err or ""), vim.log.levels.ERROR)
-      table.insert(failed_comments, comment)
-    end
   end
+end
 
-  -- For "comment" review with no body, skip the review call if we posted any inline comments
-  -- (the inline comments ARE the review content)
-  local posted_count = #M.current.pending_comments - #failed_comments
-  local posted_comments = had_pending_comments and posted_count > 0
-  local skip_review = event == "comment" and (not body or body == "") and posted_comments
-  
-  local ok, err = true, nil
-  if not skip_review then
-    ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
-  end
-  
+function M._submit_review_call(event, body, failed_comments)
+  failed_comments = failed_comments or {}
+  local github = require("pr.github")
+  local ok, err = github.submit_review(M.current.owner, M.current.repo, M.current.number, event, body)
+  M._finish_submit(event, failed_comments, ok, err)
+end
+
+function M._finish_submit(event, failed_comments, ok, err)
   if ok then
     vim.notify("Review submitted: " .. event, vim.log.levels.INFO)
     
-    -- Clear saved state after successful submit
     require("pr.cache").clear_review(M.current.owner, M.current.repo, M.current.number)
-    -- Keep failed comments for retry
     M.current.pending_comments = failed_comments
     M.current.reviewed = {}
     

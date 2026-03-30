@@ -138,7 +138,7 @@ function M.get_current_file_threads()
   if not review.current then return {} end
   
   local current_file = review.current.files[review.current.file_index]
-  if not current_file then return M.threads end
+  if not current_file then return {} end
   
   local file_threads = {}
   
@@ -235,8 +235,55 @@ function M.goto_thread_by_id(id)
   end
 end
 
+-- Collect all comments in a thread (root + replies)
+function M.get_thread_chain(thread)
+  local chain = { thread }
+  
+  -- Find the root comment ID for this thread
+  local root_id = thread.in_reply_to or thread.id
+  
+  -- Collect all replies to the same root
+  for _, t in ipairs(M.threads) do
+    if t.id ~= thread.id then
+      if t.in_reply_to == root_id or t.id == root_id or t.in_reply_to == thread.id then
+        -- Avoid duplicates
+        local already = false
+        for _, existing in ipairs(chain) do
+          if existing.id == t.id then already = true; break end
+        end
+        if not already then
+          table.insert(chain, t)
+        end
+      end
+    end
+  end
+  
+  -- Sort by id (chronological for API comments)
+  table.sort(chain, function(a, b)
+    return tostring(a.id) < tostring(b.id)
+  end)
+  
+  return chain
+end
+
 function M.show_thread_popup(thread)
-  local lines = vim.split(thread.body or "", "\n")
+  -- Show full thread conversation, not just single comment
+  local chain = M.get_thread_chain(thread)
+  
+  local lines = {}
+  for i, comment in ipairs(chain) do
+    local author = comment.author or "unknown"
+    if comment.pending then author = "you (pending)" end
+    table.insert(lines, "**@" .. author .. ":**")
+    for _, line in ipairs(vim.split(comment.body or "", "\n")) do
+      table.insert(lines, line)
+    end
+    if i < #chain then
+      table.insert(lines, "")
+      table.insert(lines, "---")
+      table.insert(lines, "")
+    end
+  end
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -244,7 +291,7 @@ function M.show_thread_popup(thread)
   vim.bo[buf].filetype = "markdown"
 
   local width = math.floor(vim.o.columns * 0.5)
-  local height = math.min(#lines + 2, 15)
+  local height = math.min(#lines + 2, 20)
 
   local author = thread.author or "unknown"
   if thread.pending then
@@ -349,10 +396,13 @@ function M.edit_pending(line)
   
   local current_file = review.current.files[review.current.file_index]
   
-  for i, comment in ipairs(review.current.pending_comments) do
+  for _, comment in ipairs(review.current.pending_comments) do
     if comment.path == current_file and comment.line == line then
+      -- Capture reference to the comment we're editing
+      local target_comment = comment
+      
       -- Open edit window with existing content
-      local lines = vim.split(comment.body, "\n")
+      local lines = vim.split(target_comment.body, "\n")
       
       local buf = vim.api.nvim_create_buf(false, true)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -361,7 +411,7 @@ function M.edit_pending(line)
       local width = math.floor(vim.o.columns * 0.5)
       local height = math.max(#lines + 3, 5)
       
-      local title = string.format(" Edit comment %s:%d ", comment.path, comment.line)
+      local title = string.format(" Edit comment %s:%d ", target_comment.path, target_comment.line)
       
       local win = vim.api.nvim_open_win(buf, true, {
         relative = "cursor",
@@ -384,12 +434,17 @@ function M.edit_pending(line)
         vim.api.nvim_win_close(win, true)
         
         if new_body:gsub("%s", "") ~= "" then
-          comment.body = new_body
+          target_comment.body = new_body
           vim.notify("Comment updated", vim.log.levels.INFO)
           M.show_all_comments()
         else
-          -- Empty = delete
-          table.remove(review.current.pending_comments, i)
+          -- Empty = delete; find current index at deletion time
+          for j, c in ipairs(review.current.pending_comments) do
+            if c == target_comment then
+              table.remove(review.current.pending_comments, j)
+              break
+            end
+          end
           vim.notify("Comment deleted (empty)", vim.log.levels.INFO)
           M.show_all_comments()
         end

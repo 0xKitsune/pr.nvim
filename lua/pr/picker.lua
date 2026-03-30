@@ -301,10 +301,11 @@ function M._telescope_files(files, current)
     local lines = vim.split(full_diff, "\n")
     local result = {}
     local in_file = false
+    local escaped = file:gsub("%-", "%%-"):gsub("%.", "%%.")
 
     for _, line in ipairs(lines) do
       if line:match("^diff %-%-git") then
-        if line:match(file:gsub("%-", "%%-"):gsub("%.", "%%.")) then
+        if line:match("b/" .. escaped .. "$") then
           in_file = true
         else
           if in_file then break end
