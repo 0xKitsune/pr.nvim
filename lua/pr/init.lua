@@ -19,6 +19,12 @@ function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   require("pr.commands").setup()
   
+  -- Check gh CLI is installed
+  if vim.fn.executable("gh") ~= 1 then
+    vim.notify("pr.nvim: 'gh' CLI not found. Install from https://cli.github.com/", vim.log.levels.ERROR)
+    return
+  end
+  
   -- Prefetch PR list in background so it's ready when user opens picker
   vim.defer_fn(function()
     require("pr.github").prefetch()

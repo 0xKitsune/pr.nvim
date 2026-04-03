@@ -149,20 +149,10 @@ function M._open_comment_window(with_suggestion)
     vim.api.nvim_win_close(win, true)
   end
 
-  -- Enter submits (in both modes)
+  -- Enter submits in normal mode only (insert mode Enter = newline for multiline comments)
   vim.keymap.set("n", "<CR>", submit, { buffer = buf })
-  vim.keymap.set("i", "<CR>", function()
-    vim.cmd("stopinsert")
-    submit()
-  end, { buffer = buf })
   
-  -- Ctrl+Enter for newline (multiline comments)
-  vim.keymap.set("i", "<C-CR>", function()
-    vim.api.nvim_put({ "", "" }, "c", true, true)
-    vim.api.nvim_win_set_cursor(0, { vim.api.nvim_win_get_cursor(0)[1], 0 })
-  end, { buffer = buf })
-  
-  -- Also support Ctrl+s to submit
+  -- Ctrl+s to submit from either mode
   vim.keymap.set("n", "<C-s>", submit, { buffer = buf })
   vim.keymap.set("i", "<C-s>", function()
     vim.cmd("stopinsert")
